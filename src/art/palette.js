@@ -139,4 +139,85 @@ export const PAL = {
   damageFlash: 'rgba(180,20,20,0.5)',
   white: '#ffffff',
   black: '#000000',
+
+  // ================= 扩展内容配色 =================
+
+  // ---- 障碍物材质（扩展）----
+  bone: '#e0dcc4',
+  boneShade: '#b6b096',
+  fleshBlock: '#a44a4a',
+  fleshBlockShade: '#7c3030',
+
+  // ---- 小怪：苍蝇 / 蜘蛛 / 骨 / 肉 ----
+  flyBody: '#2c2c34',
+  flyBodyShade: '#1a1a20',
+  flyWing: '#cfd6e0',
+  flyEye: '#d02020',
+  boomFlyBody: '#8a1f2a',
+  boomFlyBodyShade: '#5c1219',
+  spiderBody: '#3a2a2a',
+  spiderBodyShade: '#241818',
+  spiderLeg: '#4a3636',
+  boneBody: '#ddd6bc',
+  boneBodyShade: '#a9a184',
+  fleshEnemy: '#c25a5a',
+  fleshEnemyShade: '#8f3838',
+  globinBody: '#c8d0b0',
+  globinShade: '#98a078',
+  globinCore: '#e8e2c0',
+
+  // ---- 小怪：机械 / 血肉炮台 ----
+  visBody: '#6a6a78',
+  visBodyShade: '#464650',
+  visLens: '#ff3b2a',
+  hostShell: '#b08a5a',
+  hostShellShade: '#8a6840',
+  hostMeat: '#d06a6a',
+  mawBody: '#c9a2c0',
+  mawShade: '#9a7290',
+  mawInner: '#6a1030',
+
+  // ---- 小怪：召唤物 / 爆炸物 ----
+  suckerBody: '#8a8a96',
+  suckerShade: '#5f5f6a',
+  mulliboomBody: '#b0763a',
+  mulliboomShade: '#7c4f22',
+
+  // ---- Boss：Larry Jr. / Chub ----
+  larryBody: '#c98a4a',
+  larryBodyShade: '#9a6530',
+  chubBody: '#c47a8a',
+  chubShade: '#8f5060',
+
+  // ---- Boss：Gurdy / Duke of Flies ----
+  gurdyBody: '#b8a06a',
+  gurdyShade: '#8a7448',
+  dukeBody: '#8a7a86',
+  dukeShade: '#5f5260',
+
+  // ---- Boss：Fistula / Mom ----
+  fistulaBody: '#a0b070',
+  fistulaShade: '#72804a',
+  momSkin: '#e0b090',
+  momSkinShade: '#b8845f',
+  momDress: '#8a3a4a',
+  momDressShade: '#5f2632',
+
+  // ---- Boss：Mom's Heart / Satan ----
+  heartBody: '#d0405a',
+  heartBodyShade: '#96263c',
+  heartVein: '#7a1024',
+  satanBody: '#6a1a1a',
+  satanBodyShade: '#440f0f',
+  satanHorn: '#d8d0c0',
+  satanEye: '#ff5a2a',
+
+  // ---- Boss：Isaac / ??? / The Lamb ----
+  isaacBossSkin: '#f2d3b3',
+  isaacBossShade: '#d0a882',
+  blueBabyBody: '#8ab0c8',
+  blueBabyShade: '#5f88a2',
+  lambBody: '#e8e2d4',
+  lambShade: '#b8b09e',
+  lambEye: '#c02020',
 };

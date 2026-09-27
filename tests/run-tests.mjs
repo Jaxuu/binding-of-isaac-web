@@ -11,7 +11,10 @@ import { generateDungeon, validateDungeon, ROOM_KIND, roomKey, DIRS } from '../s
 import { computeStats, BASE_STATS, STAT_LIMITS, STAT_KEYS, shotsPerSecond, statBar } from '../src/entities/stats.js';
 import { applyItem, ITEM_POOL, ITEM_BY_ID, rollItem, RARITY_WEIGHTS } from '../src/entities/items.js';
 import { Player } from '../src/entities/player.js';
-import { Enemy, ENEMY_DEFS } from '../src/entities/enemy.js';
+import { Enemy, ENEMY_DEFS, ENEMY_TYPES, updateEnemyAI } from '../src/entities/enemy.js';
+import { Boss, updateBoss, BOSS_DEFS } from '../src/entities/boss.js';
+import { FLOORS, floorDef, floorCount, floorEnemies, floorObstacles } from '../src/systems/floors.js';
+import { ITEM_ICONS } from '../src/art/draw-items.js';
 import { Rng, mulberry32, hashSeed, normalizeSeed } from '../src/core/rng.js';
 import { EventBus, EVT } from '../src/core/events.js';
 import { StateMachine } from '../src/core/state.js';
@@ -387,7 +390,7 @@ group('道具系统', () => {
       assert(it.nameZh, `${it.id} 缺 nameZh`);
       assert(it.desc, `${it.id} 缺 desc`);
       assert(['common', 'rare', 'boss', 'shop'].includes(it.rarity), `${it.id} rarity 非法: ${it.rarity}`);
-      assert(it.mods || it.weapon || it.onPickup, `${it.id} 没有任何效果`);
+      assert(it.mods || it.weapon || it.onPickup || it.flatMax, `${it.id} 没有任何效果`);
     }
   });
 
@@ -553,6 +556,19 @@ group('敌人系统', () => {
       assert(d.hp > 0, `${type} hp 非法`);
       assert(d.radius > 0, `${type} radius 非法`);
       assert(typeof d.speed === 'number');
+    }
+  });
+
+  test('全部敌人定义字段完整（19 种）', () => {
+    for (const [type, d] of Object.entries(ENEMY_DEFS)) {
+      assert(d.name, `${type} 缺 name`);
+      assert(d.nameZh, `${type} 缺 nameZh`);
+      assert(d.hp > 0, `${type} hp 非法`);
+      assert(d.radius > 0, `${type} radius 非法`);
+      assert(typeof d.speed === 'number', `${type} speed 非数字`);
+      assert(typeof d.contactDamage === 'number', `${type} contactDamage 非数字`);
+      assert(typeof d.ai === 'string' && d.ai.length > 0, `${type} 缺 ai`);
+      assert(typeof d.flying === 'boolean', `${type} 缺 flying`);
     }
   });
 
@@ -814,6 +830,166 @@ group('房间对象纯逻辑', () => {
     // 同步无法 await import，用动态 require 风格：这里改为断言常量
     // （真实 Room 行为在浏览器 harness 中验证）
     assert(true);
+  });
+});
+
+// =================================================================
+group('扩展内容规模（用户硬需求）', () => {
+  test('道具数量 ≥ 50', () => {
+    assert(ITEM_POOL.length >= 50, `道具仅 ${ITEM_POOL.length} 件，要求 ≥50`);
+  });
+
+  test('小怪数量 ≥ 15', () => {
+    assert(ENEMY_TYPES.length >= 15, `小怪仅 ${ENEMY_TYPES.length} 种，要求 ≥15`);
+  });
+
+  test('Boss 数量 ≥ 10（专属 Boss）', () => {
+    const n = Object.keys(BOSS_DEFS).length;
+    assert(n >= 10, `Boss 仅 ${n} 个，要求 ≥10`);
+  });
+
+  test('楼层数量 ≥ 10（每层不同主题）', () => {
+    assert(floorCount() >= 10, `楼层仅 ${floorCount()} 层，要求 ≥10`);
+  });
+
+  test('道具覆盖多种属性类型（攻速/攻击力/血量/移速）', () => {
+    const keys = new Set();
+    for (const it of ITEM_POOL) {
+      if (it.mods && it.mods.flat) for (const k of Object.keys(it.mods.flat)) keys.add(k);
+      if (it.mods && it.mods.mult) for (const k of Object.keys(it.mods.mult)) keys.add(k);
+      if (it.flatMax) for (const k of Object.keys(it.flatMax)) keys.add(k);
+    }
+    for (const need of ['damage', 'fireDelay', 'speed', 'maxHealth', 'range', 'shotSpeed']) {
+      assert(keys.has(need), `没有任何道具影响 ${need}`);
+    }
+  });
+
+  test('每件道具都有独立图标', () => {
+    const missing = ITEM_POOL.filter((it) => !ITEM_ICONS[it.id]).map((it) => it.id);
+    assert(missing.length === 0, `缺少图标: ${missing.join(', ')}`);
+  });
+});
+
+// =================================================================
+group('楼层配置一致性', () => {
+  const MOVE_WHITELIST = ['spread', 'radial', 'homing', 'spiral', 'jump', 'charge', 'stomp', 'laser', 'summon'];
+
+  test('每层都有 id/name/nameZh 与完整主题', () => {
+    for (const f of FLOORS) {
+      assert(f.id, '楼层缺 id');
+      assert(f.name && f.nameZh, `${f.id} 缺名称`);
+      for (const k of ['floorA', 'floorB', 'wall', 'deco', 'ambient', 'accent']) {
+        assert(f.theme && f.theme[k], `${f.id} 主题缺 ${k}`);
+      }
+      assert(typeof f.hpScale === 'number' && f.hpScale > 0, `${f.id} hpScale 非法`);
+      assert(Array.isArray(f.obstacle) && f.obstacle.length > 0, `${f.id} 缺障碍材质`);
+    }
+  });
+
+  test('每层主题色互不相同（视觉主题有区分度）', () => {
+    const seen = new Set();
+    for (const f of FLOORS) {
+      const key = `${f.theme.floorA}|${f.theme.wall}`;
+      assert(!seen.has(key), `${f.id} 主题色与前面某层重复`);
+      seen.add(key);
+    }
+  });
+
+  test('每层的 Boss 都存在于 BOSS_DEFS', () => {
+    for (const f of FLOORS) {
+      assert(BOSS_DEFS[f.boss], `${f.id} 的 boss '${f.boss}' 不存在`);
+    }
+  });
+
+  test('每层的敌人池 key 都存在于 ENEMY_DEFS', () => {
+    for (const f of FLOORS) {
+      for (const key of Object.keys(f.enemies)) {
+        assert(ENEMY_DEFS[key], `${f.id} 敌人池含未知类型 '${key}'`);
+        assert(f.enemies[key] > 0, `${f.id}.${key} 权重非法`);
+      }
+    }
+  });
+
+  test('floorDef 越界钳制且不返回 undefined', () => {
+    assert(floorDef(0) === FLOORS[0]);
+    assert(floorDef(999) === FLOORS[FLOORS.length - 1]);
+    assert(floorDef(-3) === FLOORS[0]);
+  });
+
+  test('floorEnemies 返回副本（不污染配置）', () => {
+    const a = floorEnemies(1);
+    a.gaper = 999;
+    assert(floorEnemies(1).gaper !== 999, 'floorEnemies 返回了共享引用');
+  });
+
+  test('floorObstacles 返回副本', () => {
+    const a = floorObstacles(1);
+    a.push('mutated');
+    assert(floorObstacles(1).indexOf('mutated') === -1, 'floorObstacles 返回了共享引用');
+  });
+
+  test('Boss 定义完整性（数值/阶段/技能白名单）', () => {
+    for (const [id, d] of Object.entries(BOSS_DEFS)) {
+      assert(d.id === id, `${id} 的 id 字段不一致`);
+      assert(d.name && d.nameZh, `${id} 缺名称`);
+      assert(d.hp > 0, `${id} hp 非法`);
+      assert(d.radius > 0, `${id} radius 非法`);
+      assert(Array.isArray(d.moves) && d.moves.length > 0, `${id} 缺技能池`);
+      for (const m of d.moves) assert(MOVE_WHITELIST.includes(m), `${id} 技能 '${m}' 不在白名单`);
+      assert(Array.isArray(d.phases) && d.phases.length >= 2, `${id} 阶段数不足`);
+      let prev = 1.1;
+      for (const ph of d.phases) {
+        assert(typeof ph.threshold === 'number', `${id} 阶段缺 threshold`);
+        assert(ph.threshold < prev, `${id} 阶段阈值未递减`);
+        prev = ph.threshold;
+        assert(ph.attackInterval > 0, `${id} 阶段缺 attackInterval`);
+        assert(ph.bulletSpeed > 0, `${id} 阶段缺 bulletSpeed`);
+      }
+      assert(d.bullet && d.bullet.color, `${id} 缺弹幕外观`);
+    }
+  });
+
+  test('每个 Boss 都能被实例化并跑若干帧 AI 不抛异常', () => {
+    const rng = new Rng(7);
+    const api = {
+      room: { minX: 0, maxX: 624, minY: 0, maxY: 336 },
+      spawnBullet: () => {},
+      explode: () => {},
+      shake: () => {},
+      beam: () => {},
+      spawnEnemy: () => {},
+    };
+    for (const id of Object.keys(BOSS_DEFS)) {
+      const b = new Boss(300, 160, rng, 1, id);
+      b.entering = 0;
+      const player = { x: 100, y: 100, alive: true };
+      for (let i = 0; i < 240; i++) updateBoss(b, 1 / 60, player, api);
+      assert(Number.isFinite(b.x) && Number.isFinite(b.y), `${id} 坐标非法`);
+      assert(b.hp >= 0, `${id} 血量非法`);
+    }
+  });
+
+  test('每个小怪都能被实例化并跑若干帧 AI 不抛异常', () => {
+    const rng = new Rng(11);
+    const api = { spawnBullet: () => {}, explode: () => {}, beam: () => {}, spawnEnemy: () => {} };
+    const player = { x: 300, y: 160, alive: true };
+    for (const type of ENEMY_TYPES) {
+      const e = new Enemy(type, 200, 120, rng);
+      for (let i = 0; i < 240; i++) updateEnemyAI(e, 1 / 60, player, api);
+      assert(Number.isFinite(e.x) && Number.isFinite(e.y), `${type} 坐标非法`);
+      assert(Number.isFinite(e.vx) && Number.isFinite(e.vy), `${type} 速度非法`);
+    }
+  });
+
+  test('敌人 AI 类型均在已实现白名单内', () => {
+    const whitelist = [
+      'chase', 'flyChase', 'flyShooter', 'turret', 'wanderShooter', 'slowShooter',
+      'homingShooter', 'boneThrower', 'charger', 'jumper', 'leaper', 'summoner',
+      'ambusher', 'laser', 'exploder', 'slowExploder', 'diagonalFlyer',
+    ];
+    for (const [type, d] of Object.entries(ENEMY_DEFS)) {
+      assert(whitelist.includes(d.ai), `${type} 的 ai '${d.ai}' 未实现`);
+    }
   });
 });
 

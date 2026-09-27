@@ -15,8 +15,8 @@
 
 import { PAL } from './palette.js';
 import { drawPlayer } from './draw-player.js';
-import { drawGaper, drawPooter, drawHorf } from './draw-enemies.js';
-import { drawMonstro } from './draw-boss.js';
+import { drawEnemy } from './draw-enemies.js';
+import { drawBoss } from './draw-boss.js';
 import { paintRoom, drawObstacle, TILE, ROOM_COLS, ROOM_ROWS, WALL_T } from './draw-room.js';
 import { drawTear, drawBeam, drawTechBeam, drawIpecac, drawKnife, drawExplosion, drawParticle } from './draw-projectiles.js';
 import { drawItemPickup, drawPickup, drawChest } from './draw-items.js';
@@ -269,13 +269,13 @@ export class Renderer {
       dead: e.isDead ? e.dead : 0,
       shotFlash: e.shotFlash || 0,
       charge: e.charge || 0,
+      charging: e.chargeState === 'dashing',
+      risen: e.risen,
+      hopZ: e.hopZ || 0,
+      laserCharging: e.state === 'laserCharge',
+      reviving: e.state === 'revive',
     };
-    switch (e.type) {
-      case 'pooter': drawPooter(ctx, v); break;
-      case 'horf': drawHorf(ctx, v); break;
-      case 'gaper':
-      default: drawGaper(ctx, v); break;
-    }
+    drawEnemy(ctx, e.type, v);
     // 敌人 HP 条（受伤后显示 1.2s）
     if (!e.isDead && e.hurtFlash > 0.08 && e.hp < e.maxHp) {
       const w = 30;
@@ -294,7 +294,7 @@ export class Renderer {
   }
 
   _drawBoss(ctx, b, t) {
-    drawMonstro(ctx, {
+    drawBoss(ctx, b.defId || 'monstro', {
       t: b.t,
       mouth: b.mouth,
       squash: b.squash,
@@ -302,8 +302,19 @@ export class Renderer {
       hurt: b.hurtFlash,
       dead: b.isDead ? b.dead : 0,
       scale: 1,
+      charging: !!b.charging,
     });
-    // Boss 血条画在屏幕顶部（由 _renderOverlays 负责）
+    // 踩踏阴影预告（Mom / Satan）：在玩家位置画一个落点警示圈
+    if (b.state === 'windup' && b.attackKind === 'stomp') {
+      ctx.save();
+      ctx.globalAlpha = 0.5 + Math.sin(t * 18) * 0.2;
+      ctx.strokeStyle = '#ff3a2a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(b.stompX - b.x, b.stompY - b.y, 40, 30, 0, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
     // 出场无敌闪烁
     if (b.entering > 0) {
       ctx.save();

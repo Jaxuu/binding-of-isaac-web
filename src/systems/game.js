@@ -18,6 +18,7 @@ import { Combat } from './combat.js';
 import { ParticleSystem } from '../art/particles.js';
 import { generateDungeon, validateDungeon, DIRS, roomKey, ROOM_KIND } from './dungeon.js';
 import { Room, populateRoom, ROOM_W, ROOM_H, PLAY_PAD } from './rooms.js';
+import { floorDef, floorCount, FLOORS } from './floors.js';
 import { applyItem, rollItem, RARITY_WEIGHTS, ITEM_BY_ID } from '../entities/items.js';
 import { EVT } from '../core/events.js';
 import { Rng } from '../core/rng.js';
@@ -33,15 +34,11 @@ export const SCENE = Object.freeze({
   FLOOR_INTRO: 'floorIntro',
 });
 
-/** 每层主题名（UI 显示） */
-const BIOMES = [
-  'Basement',
-  'Caves',
-  'Depths',
-  'Womb',
-  'Sheol',
-  'Cathedral',
-];
+/** 每层主题名（UI 显示）——由 systems/floors.js 统一提供 */
+const BIOMES = FLOORS.map((f) => f.name);
+
+/** 通关所需层数（= 楼层总数） */
+const MAX_FLOOR = floorCount();
 
 export class GameState {
   constructor({ bus, input, audio, width, height }) {
@@ -464,14 +461,14 @@ export class GameState {
 
   _updateEnemies(dt, room) {
     const p = this.player;
-    const spawnBullet = this.combat.makeEnemySpawnFn();
+    const api = this._enemyApi(room);
     for (let i = room.enemies.length - 1; i >= 0; i--) {
       const e = room.enemies[i];
       if (!e.alive) {
         room.enemies.splice(i, 1);
         continue;
       }
-      updateEnemyAI(e, dt, p, spawnBullet);
+      updateEnemyAI(e, dt, p, api);
       if (e.isDead) continue;
 
       // 击退位移
@@ -503,8 +500,15 @@ export class GameState {
       const pad = e.radius + PLAY_PAD * 0.4;
       const bx = clamp(e.x, pad, ROOM_W - pad);
       const by = clamp(e.y, pad, ROOM_H - pad);
-      if (bx !== e.x && !e.flying) e.vx *= -0.4;
-      if (by !== e.y && !e.flying) e.vy *= -0.4;
+      const hitX = bx !== e.x;
+      const hitY = by !== e.y;
+      if (hitX && !e.flying) e.vx *= -0.4;
+      if (hitY && !e.flying) e.vy *= -0.4;
+      // 对角飞行怪（轰炸蝇）撞墙反弹：翻转对应轴方向
+      if (e.def.ai === 'diagonalFlyer') {
+        if (hitX) { e.dir.x *= -1; e.vx *= -1; }
+        if (hitY) { e.dir.y *= -1; e.vy *= -1; }
+      }
       e.x = bx;
       e.y = by;
 
@@ -535,8 +539,9 @@ export class GameState {
     // Boss 在玩家进入 boss 房后生成
     if (room.kind === ROOM_KIND.BOSS && !room.bossSpawned) {
       if (room.visited && room.enterGrace <= 0) {
-        const hpScale = 1 + (this.floor - 1) * 0.22;
-        room.boss = new Boss(ROOM_W / 2, ROOM_H * 0.42, this.rng, hpScale);
+        const fd = floorDef(this.floor);
+        const hpScale = fd.hpScale || (1 + (this.floor - 1) * 0.22);
+        room.boss = new Boss(ROOM_W / 2, ROOM_H * 0.42, this.rng, hpScale, fd.boss);
         room.bossSpawned = true;
         room.cleared = false;
         this.audio.sfxBossRoar();
@@ -572,7 +577,9 @@ export class GameState {
     const api = {
       room,
       spawnBullet: this.combat.makeEnemySpawnFn(),
-      explode: (x, y, r, dmg, owner) => this.combat.explode(x, y, r, dmg, owner),
+      explode: (x, y, r, dmg, owner) => this.combat.explode(x, y, r, dmg, owner || 'enemy'),
+      beam: (x, y, angle, opts) => this.combat.spawnEnemyBeam(x, y, angle, opts),
+      spawnEnemy: (type, x, y) => this._spawnEnemy(type, x, y, room),
       shake: (a) => this.addShake(a),
       audioShoot: () => this.audio.tone({ freq: 220, freqEnd: 90, type: 'sawtooth', dur: 0.2, gain: 0.22 }),
       audioLand: () => {
@@ -580,6 +587,29 @@ export class GameState {
       },
     };
     updateBoss(b, dt, this.player, api);
+  }
+
+  /** 敌人 AI 所需的回调集合（爆炸 / 召唤 / 光束） */
+  _enemyApi(room) {
+    return {
+      spawnBullet: this.combat.makeEnemySpawnFn(),
+      explode: (x, y, r, dmg, owner) => this.combat.explode(x, y, r, dmg, owner || 'enemy'),
+      beam: (x, y, angle, opts) => this.combat.spawnEnemyBeam(x, y, angle, opts),
+      spawnEnemy: (type, x, y) => this._spawnEnemy(type, x, y, room),
+    };
+  }
+
+  /** 生成一个敌人（供召唤类敌人/Boss 使用）；带数量上限防止失控 */
+  _spawnEnemy(type, x, y, room) {
+    if (!room) return null;
+    if (room.enemies.length >= 16) return null;
+    const e = new Enemy(type, x, y, this.rng);
+    const fd = floorDef(this.floor);
+    e.applyScaling(fd.hpScale || 1, fd.speedScale || 1);
+    e.entering = 0.2;
+    room.enemies.push(e);
+    this.fx.sparkBurst(x, y, 8, '#c04040', 0);
+    return e;
   }
 
   _updatePickups(dt, room, p) {

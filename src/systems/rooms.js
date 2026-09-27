@@ -14,6 +14,7 @@ import { TILE, ROOM_COLS, ROOM_ROWS, WALL_T } from '../art/draw-room.js';
 import { ROOM_KIND } from './dungeon.js';
 import { Enemy } from '../entities/enemy.js';
 import { rollItem, RARITY_WEIGHTS } from '../entities/items.js';
+import { floorDef, floorEnemies, floorObstacles } from './floors.js';
 
 export const ROOM_W = ROOM_COLS * TILE; // 624
 export const ROOM_H = ROOM_ROWS * TILE; // 336
@@ -183,48 +184,52 @@ export function populateRoom(room, rng, opts) {
     room.cleared = true;
   }
 
+  const obsTypes = floorObstacles(floor);
+
   if (kind === ROOM_KIND.TREASURE) {
     // 宝箱房：中央偏上放宝箱
     placeChest(room, rng, opts, ROOM_W / 2, ROOM_H * 0.42);
     // 少量碎石装饰
-    scatterObstacles(room, rng, 2, 3, /*avoidCenter*/ true);
+    scatterObstacles(room, rng, 2, 3, /*avoidCenter*/ true, obsTypes);
     return room;
   }
 
   if (kind === ROOM_KIND.START) {
-    scatterObstacles(room, rng, 0, 1, false);
+    scatterObstacles(room, rng, 0, 1, false, obsTypes);
     return room;
   }
 
   if (kind === ROOM_KIND.BOSS) {
     // Boss 房：四角可放少量障碍，Boss 由 BossSystem 在玩家进入时生成
-    scatterObstacles(room, rng, 0, 0, false);
+    scatterObstacles(room, rng, 0, 0, false, obsTypes);
     return room;
   }
 
   // ---- 普通房：障碍 + 敌人 ----
   // 障碍数量随深度略增，但保证有足够的活动空间
+  const obstacleTypes = floorObstacles(floor);
   const obstacleCount = rng.int(0, Math.min(4, 1 + Math.floor(floor / 2)));
-  scatterObstacles(room, rng, obstacleCount, obstacleCount + 2, false);
+  scatterObstacles(room, rng, obstacleCount, obstacleCount + 2, false, obstacleTypes);
 
   // 尖刺（从第 2 层开始）
   if (floor >= 2 && rng.chance(0.28)) {
     placeSpikes(room, rng, floor);
   }
 
-  // 敌人组成
+  // 敌人组成（按楼层敌人池）
   const rollEnemy = (type) => new Enemy(type, 0, 0, rng);
   const enemyCount = computeEnemyCount(floor, rng);
-  const typeWeights = availableEnemyTypes(floor);
+  const typeWeights = floorEnemies(floor);
   const spots = enemySpawnSpots(room, rng);
 
+  // 难度缩放：优先用楼层配置，缺失时退回通用公式
+  const fd = floorDef(floor);
+  const hpMul = fd.hpScale || (1 + (floor - 1) * 0.18);
+  const spdMul = fd.speedScale || Math.min(1.45, 1 + (floor - 1) * 0.06);
+
   for (let i = 0; i < enemyCount && i < spots.length; i++) {
-    // 按楼层权重选类型（首层即开放全部 3 种，但 horf 权重更低）
-    const type = rng.weighted(typeWeights);
+    const type = rng.weighted(typeWeights) || 'gaper';
     const e = rollEnemy(type);
-    // 难度缩放：每层 +18% HP、+6% 速度（上限保护）
-    const hpMul = 1 + (floor - 1) * 0.18;
-    const spdMul = Math.min(1.45, 1 + (floor - 1) * 0.06);
     e.applyScaling(hpMul, spdMul);
     e.x = spots[i].x;
     e.y = spots[i].y;
@@ -239,20 +244,7 @@ export function populateRoom(room, rng, opts) {
 function computeEnemyCount(floor, rng) {
   const base = 2 + Math.floor(floor * 0.7); // 3,4,4,5,...
   const jitter = rng.int(-1, 1);
-  return Math.max(1, Math.min(7, base + jitter));
-}
-
-/** 根据楼层返回敌人种类及其权重（渐进解锁 + 首层即可见全部 3 种）
- *
- * BUG-004 修复（方案 A）：用户硬需求是「至少 3 种普通敌人」，而玩家对
- * 「这游戏有几种敌人」的判断主要来自首层。因此 horf 从 floor 1 就进入候选，
- * 但首层给低权重（1:3:3）保留渐进难度；第 2 层起拉平为 1:1:1，第 3 层起
- * horf 略升（更耐打的远程站桩在中后期更有压迫感）。
- */
-function availableEnemyTypes(floor) {
-  if (floor <= 1) return { gaper: 3, pooter: 3, horf: 1 };
-  if (floor === 2) return { gaper: 1, pooter: 1, horf: 1 };
-  return { gaper: 1, pooter: 1, horf: 1.3 };
+  return Math.max(1, Math.min(8, base + jitter));
 }
 
 /** 生成互不重叠的敌人出生点（避开障碍与门） */
@@ -290,9 +282,10 @@ function enemySpawnSpots(room, rng) {
   return rng.shuffle(spots);
 }
 
-/** 随机散布障碍物（岩石/粪便） */
-function scatterObstacles(room, rng, min, max, avoidCenter) {
+/** 随机散布障碍物（材质由楼层决定：岩石/粪便/骨堆/肉块） */
+function scatterObstacles(room, rng, min, max, avoidCenter, types) {
   if (max <= 0) return;
+  const palette = types && types.length ? types : ['rock', 'poop'];
   const want = rng.int(min, max);
   let placed = 0;
   let attempts = 0;
@@ -308,7 +301,7 @@ function scatterObstacles(room, rng, min, max, avoidCenter) {
     // 避免相邻格形成死墙
     if (room.isCellBlocked(tx - 1, ty) && room.isCellBlocked(tx + 1, ty)) continue;
     if (room.isCellBlocked(tx, ty - 1) && room.isCellBlocked(tx, ty + 1)) continue;
-    const type = rng.chance(0.55) ? 'rock' : 'poop';
+    const type = rng.pick(palette);
     room.obstacles.push({ tx, ty, type, seed: rng.int(1, 99999) });
     placed++;
   }

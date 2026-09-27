@@ -604,7 +604,7 @@ export function drawWinScreen(ctx, W, H, t, stats, hoverBtn) {
   drawTitle(ctx, 'VICTORY!', W / 2, H * 0.2, Math.min(76, W * 0.105), {
     top: '#fffbe0', mid: '#f3c73f', bottom: '#a06a10', stroke: '#5a3a08',
   });
-  strokedText(ctx, '你击败了地下室的魔王', W / 2, H * 0.29, {
+  strokedText(ctx, '你击败了地下最深处的魔王', W / 2, H * 0.29, {
     font: 'bold 18px "Trebuchet MS",sans-serif', fill: '#ffe9a3', lineWidth: 4, align: 'center',
   });
 

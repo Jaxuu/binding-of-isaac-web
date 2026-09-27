@@ -163,9 +163,23 @@ export class Combat {
         range: def.range || 460,
         color: def.color || '#ff4a4a',
         hiColor: '#ffd0d0',
+        homing: def.homing || 0,
       },
     ));
     b.angle = angle;
+    return b;
+  }
+
+  /** 敌人发射光束（Vis 的激光等） */
+  spawnEnemyBeam(x, y, angle, opts = {}) {
+    const b = this.beams.add(this.beams.pool.acquire(x, y, angle, opts.length || 240, {
+      width: opts.width || 16,
+      damage: opts.damage || 1.5,
+      owner: 'enemy',
+      kind: 'enemy',
+      duration: opts.duration || 0.42,
+      color: opts.color || '#ff4a2a',
+    }));
     return b;
   }
 
@@ -206,8 +220,10 @@ export class Combat {
       }
 
       // --- 追踪 ---
-      if (b.homing > 0 && enemies) {
-        const target = findNearestEnemy(enemies, b.x, b.y, 260, room.boss);
+      if (b.homing > 0) {
+        const target = isPlayerOwned
+          ? findNearestEnemy(enemies, b.x, b.y, 260, room.boss)
+          : (player && player.alive ? player : null);
         if (target) {
           const desired = Math.atan2(target.y - b.y, target.x - b.x);
           const cur = Math.atan2(b.vy, b.vx);
@@ -362,6 +378,20 @@ export class Combat {
         list.removeAt(i);
         continue;
       }
+      if (beam.owner === 'enemy') {
+        // 敌方光束（Vis 的激光）：命中玩家
+        if (player.alive) {
+          const dist = pointToSegment(player.x, player.y, beam.x1, beam.y1, beam.x2, beam.y2);
+          if (dist <= player.radius + beam.width * 0.5) {
+            if (player.takeDamage(beam.damage)) {
+              this.bus.emit(EVT.PLAYER_DAMAGED, beam.damage);
+              this.audio.sfxHurt();
+              this.fx.bloodBurst(player.x, player.y, 8, TAU, 0, { color: '#d93b3b' });
+            }
+          }
+        }
+        continue;
+      }
       if (beam.owner !== 'player') continue;
 
       // 命中节流：每 0.09s 结算一次
@@ -435,6 +465,19 @@ export class Combat {
           }
         }
       }
+    } else if (ex.owner === 'enemy') {
+      // 敌方爆炸（Boss 落地冲击波 / 自爆怪）：只伤玩家，不伤敌人
+      if (player.alive) {
+        const d = Math.hypot(player.x - ex.x, player.y - ex.y);
+        if (d <= ex.radius + player.radius) {
+          const falloff = 1 - clamp(d / (ex.radius + player.radius), 0, 1) * 0.5;
+          if (player.takeDamage(Math.max(1, Math.round(ex.damage * falloff)))) {
+            this.bus.emit(EVT.PLAYER_DAMAGED, ex.damage);
+            this.audio.sfxHurt();
+            this.fx.bloodBurst(player.x, player.y, 8, TAU, 0, { color: '#d93b3b' });
+          }
+        }
+      }
     }
     this.fx.explode(ex.x, ex.y, 16, ex.radius);
     this.audio.noise({ dur: 0.4, gain: 0.28, filterFrom: 2400, filterTo: 120 });
@@ -452,18 +495,26 @@ export class Combat {
     const targets = collectTargets(room);
     for (const e of targets) {
       if (e.isDead) continue;
-      if (e.contactDamage <= 0) continue;
       const rr = e.radius + player.radius * 0.8;
-      if (dist2Sq(e.x, e.y, player.x, player.y) <= rr * rr) {
-        if (player.takeDamage(e.contactDamage)) {
-          this.bus.emit(EVT.PLAYER_DAMAGED, e.contactDamage);
-          this.audio.sfxHurt();
-          this.fx.bloodBurst(player.x, player.y, 8, TAU, 0, { color: '#d93b3b' });
-          // 被撞后玩家被弹开一点
-          const a = Math.atan2(player.y - e.y, player.x - e.x);
-          player.vx += Math.cos(a) * 120;
-          player.vy += Math.sin(a) * 120;
-        }
+      if (dist2Sq(e.x, e.y, player.x, player.y) > rr * rr) continue;
+
+      // 自爆怪（Mulliboom）：接触即引爆自身，与是否带接触伤害无关
+      if (e.def && e.def.kamikaze) {
+        this.explode(e.x, e.y, e.def.explodeRadius || 66, e.def.explodeDamage || 1.5, 'enemy');
+        e.takeDamage(999999, player.x, player.y, 0);
+        this.fx.gibBurst(e.x, e.y, 12, '#c07a3a');
+        continue;
+      }
+
+      if (e.contactDamage <= 0) continue;
+      if (player.takeDamage(e.contactDamage)) {
+        this.bus.emit(EVT.PLAYER_DAMAGED, e.contactDamage);
+        this.audio.sfxHurt();
+        this.fx.bloodBurst(player.x, player.y, 8, TAU, 0, { color: '#d93b3b' });
+        // 被撞后玩家被弹开一点
+        const a = Math.atan2(player.y - e.y, player.x - e.x);
+        player.vx += Math.cos(a) * 120;
+        player.vy += Math.sin(a) * 120;
       }
     }
   }

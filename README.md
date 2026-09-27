@@ -104,22 +104,32 @@ dist/isaac-standalone.html?seed=777
 
 1. **探索**：每层随机生成 **5–8 个房间**，通过四向门连接。
 2. **战斗**：用眼泪射击消灭敌人。**清空当前房间后门才会打开**。
-3. **推进**：找到并击败 **Boss**（Monstro）→ 进入下一层（共 5 层）。
-4. **成长**：击杀敌人 / 开启宝箱可获得**道具**，道具会改变你的
+3. **推进**：找到并击败**本层专属 Boss** → 进入下一层（**共 12 层**）。
+   楼层依次为：地下室 → 地窖 → 洞穴 → 地下墓穴 → 深处 → 大墓地 →
+   子宫 → 子宫内 → 阴间 → 大教堂 → 宝箱 → 黑暗房间，**每层有独立视觉主题**。
+4. **成长**：击杀敌人 / 开启宝箱可获得**道具**（共 **58 件**），道具会改变你的
    - **攻击方式**（普通眼泪 / 硫磺火激光 / 抛物线爆炸弹 / 飞刀 / 科技激光 …）
    - **属性数值**（攻击力 / 射速 / 移速 / 射程 / 弹速 / 生命上限）
    - **角色外观**（恶魔角 / 皇冠 / 光环 / 翅膀 …）
 
-### 实体
+### 实体（19 种小怪 + 12 个专属 Boss）
 
 | 敌人 | 行为 |
 |---|---|
 | **Gaper** | 追击型：直线冲向玩家，接触伤害 |
 | **Pooter** | 飞行远程：悬空游走，周期性发射弹 |
 | **Horf** | 静止炮台：原地不动，有前摇地吐弹 |
-| **Monstro**（Boss） | 三阶段：散射弹幕 + 跳跃砸地冲击波，血量越低越狂暴 |
+| **Attack Fly / Boom Fly** | 高速飞行追击 / 对角飞行、死亡爆炸 |
+| **Charger / Hopper / Trite** | 冲锋突进 / 连续小跳 / 长距离跳跃 |
+| **Clotty / Spitty / Maw** | 十字弹幕 / 缓慢射击 / 追踪弹 |
+| **Mulligan / Host / Vis** | 死亡召唤苍蝇 / 潜伏无敌后抬头三连射 / 蓄力激光 |
+| **Globin / Mulliboom / Maggot / Sucker / Bony** | 死亡复活 / 接触自爆 / 缓慢爬行 / 死亡爆炸 / 抛掷骨弹 |
+| **12 个专属 Boss** | Monstro、Larry Jr.、Chub、Gurdy、Duke of Flies、Fistula、Mom、Mom's Heart、Satan、Isaac、???、The Lamb —— 各有独立模型、技能池（散射 / 环形 / 螺旋 / 追踪 / 跳跃 / 踩踏 / 突进 / 激光 / 召唤）与三阶段曲线 |
 
-### 道具（19 种，示例）
+> 完整规格（每层主题色 / 敌人池 / Boss 技能 / 道具清单）见
+> [`design/gdd/07-expansion-content.md`](design/gdd/07-expansion-content.md)。
+
+### 道具（58 件，示例）
 
 | 道具 | 效果 |
 |---|---|
@@ -127,9 +137,11 @@ dist/isaac-standalone.html?seed=777
 | Ipecac 吐根 | 抛物线爆炸弹 |
 | Mom's Knife 妈妈的刀 | 投掷穿透飞刀 |
 | Technology 科技 | 穿透激光 |
-| Inner Eye 内眼 | 三向散射 |
-| My Reflection 我的倒影 | 回旋弹道 |
-| Sacred Heart / Pentagram / Halo … | 属性大幅提升 + 外观变化 |
+| Inner Eye / Mutant Spider / Loki's Horns | 三连发 / 四连发 / 四方向 |
+| Sacred Heart / Magic Mushroom / Halo | 属性大幅提升 + 外观变化 |
+| Lunch / Breakfast / Raw Liver … | 生命容器提升 |
+| Speed Ball / The Belt / Wings … | 移速提升 |
+| Odd Mushroom / The Peeper … | 射程与弹速提升 |
 
 ---
 
@@ -193,7 +205,7 @@ case-yisa/
 ## 测试
 
 ```bash
-# 1) 逻辑单测（89 项，纯 Node，无需浏览器）
+# 1) 逻辑单测（107 项，纯 Node，无需浏览器）
 npm test
 #   等价：node tests/run-tests.mjs
 

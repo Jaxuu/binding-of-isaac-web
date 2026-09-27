@@ -13,25 +13,45 @@ import { PAL } from './palette.js';
 import { roundRectPath, inkShape, circle, ellipse } from './primitives.js';
 import { TAU } from '../core/math.js';
 import { Rng } from '../core/rng.js';
+import { floorDef } from '../systems/floors.js';
 
 export const TILE = 48;
 export const ROOM_COLS = 13;
 export const ROOM_ROWS = 7;
 export const WALL_T = 26; // 墙体厚度（外圈）
 
-/** 房间主题（按房间类型换地砖/墙配色） */
-export function themeFor(kind) {
+/**
+ * 房间主题。
+ *
+ * 两层来源叠加：
+ *   1) **楼层主题**（systems/floors.js）：决定地板/墙体基色与环境母题（12 层各不相同）
+ *   2) **房间类型微调**：Boss 房偏红、宝箱房偏金、商店偏灰，覆盖楼层基色
+ *
+ * @param {string} kind 房间类型
+ * @param {number} [floor=1] 楼层（1 基）
+ */
+export function themeFor(kind, floor = 1) {
+  const fd = floorDef(floor);
+  const t = fd.theme;
+  const base = {
+    floorA: t.floorA,
+    floorB: t.floorB,
+    wallTint: t.wall,
+    deco: t.deco,
+    ambient: t.ambient,
+    accent: t.accent,
+  };
   switch (kind) {
     case 'boss':
-      return { floorA: PAL.floorBoss, floorB: shade(PAL.floorBoss, -0.12), wallTint: '#6a4a42', deco: 'skull' };
+      return { ...base, floorA: shade(t.floorA, 0.1), floorB: shade(t.floorB, -0.12), wallTint: shade(t.wall, -0.06), deco: 'bossmark' };
     case 'treasure':
-      return { floorA: PAL.floorTreasure, floorB: shade(PAL.floorTreasure, -0.1), wallTint: '#7a6450', deco: 'gold' };
+      return { ...base, floorA: PAL.floorTreasure, floorB: shade(PAL.floorTreasure, -0.1), wallTint: '#7a6450', deco: 'gold' };
     case 'start':
-      return { floorA: PAL.floorStart, floorB: PAL.floorB, wallTint: PAL.wall, deco: 'none' };
+      return { ...base, deco: 'none' };
     case 'shop':
-      return { floorA: '#4b4a55', floorB: '#43424c', wallTint: '#5f5c68', deco: 'none' };
+      return { ...base, floorA: '#4b4a55', floorB: '#43424c', wallTint: '#5f5c68', deco: 'none' };
     default:
-      return { floorA: PAL.floorA, floorB: PAL.floorB, wallTint: PAL.wall, deco: 'rock' };
+      return base;
   }
 }
 
@@ -57,7 +77,7 @@ export function shade(hex, amount) {
  * @param {import('./draw-obstacles.js')} o.obstaclePainter 可选：画障碍物
  */
 export function paintRoom(ctx, o) {
-  const theme = themeFor(o.kind);
+  const theme = themeFor(o.kind, o.floor || 1);
   const W = ROOM_COLS * TILE;
   const H = ROOM_ROWS * TILE;
   const rng = new Rng(o.seed ^ 0x51ed);
@@ -113,12 +133,23 @@ export function paintRoom(ctx, o) {
   vg.addColorStop(1, 'rgba(0,0,0,0.42)');
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
+
+  // 楼层环境色（例如 Cathedral 的圣光、Sheol 的暗红、Dark Room 的浓黑）
+  if (theme.ambient && theme.ambient !== 'rgba(0,0,0,0.42)') {
+    ctx.save();
+    ctx.fillStyle = theme.ambient;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
   ctx.restore();
 
   // ---------- 特殊房间装饰 ----------
-  if (theme.deco === 'skull') paintBossDecor(ctx, W, H, rng);
+  if (theme.deco === 'skull') paintSkullDecor(ctx, W, H, rng);
   if (theme.deco === 'gold') paintTreasureDecor(ctx, W, H, rng);
   if (theme.deco === 'rock') paintRockDecor(ctx, W, H, rng);
+  if (theme.deco === 'flesh') paintFleshDecor(ctx, W, H, rng);
+  if (theme.deco === 'fire') paintFireDecor(ctx, W, H, rng);
+  if (theme.deco === 'bossmark') paintBossDecor(ctx, W, H, rng);
 
   // ---------- 墙体（外圈）----------
   paintWalls(ctx, W, H, o.doors, theme, rng, o.cleared);
@@ -345,6 +376,97 @@ function paintRockDecor(ctx, W, H, rng) {
   ctx.restore();
 }
 
+/** 墓穴/黑暗主题：散落头骨与骨骸 */
+function paintSkullDecor(ctx, W, H, rng) {
+  const n = rng.int(2, 5);
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const x = rng.range(TILE * 1.2, W - TILE * 1.2);
+    const y = rng.range(TILE * 1.2, H - TILE * 1.2);
+    if (Math.abs(x - W / 2) < TILE * 1.2 && Math.abs(y - H / 2) < TILE * 1.2) continue;
+    ctx.globalAlpha = 0.5;
+    if (rng.float() < 0.5) {
+      // 头骨
+      ctx.fillStyle = PAL.bone;
+      ctx.beginPath();
+      ctx.arc(x, y, 6.5, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#2a2420';
+      ctx.beginPath();
+      ctx.arc(x - 2.4, y - 1, 1.7, 0, TAU);
+      ctx.arc(x + 2.4, y - 1, 1.7, 0, TAU);
+      ctx.fill();
+      ctx.fillRect(x - 1.4, y + 3.4, 2.8, 3);
+    } else {
+      // 交叉骨
+      ctx.strokeStyle = PAL.bone;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y - 4); ctx.lineTo(x + 7, y + 4);
+      ctx.moveTo(x - 7, y + 4); ctx.lineTo(x + 7, y - 4);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/** 子宫/血肉主题：暗红肉膜与血管纹 */
+function paintFleshDecor(ctx, W, H, rng) {
+  ctx.save();
+  for (let i = 0; i < 9; i++) {
+    const x = rng.range(W * 0.08, W * 0.92);
+    const y = rng.range(H * 0.08, H * 0.92);
+    ctx.globalAlpha = rng.range(0.06, 0.16);
+    ctx.fillStyle = '#8a2030';
+    ctx.beginPath();
+    ctx.ellipse(x, y, rng.range(22, 62), rng.range(16, 42), rng.range(0, TAU), 0, TAU);
+    ctx.fill();
+  }
+  // 血管
+  ctx.globalAlpha = 0.22;
+  ctx.strokeStyle = '#5c0f1a';
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 7; i++) {
+    let x = rng.range(W * 0.1, W * 0.9);
+    let y = rng.range(H * 0.1, H * 0.9);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 4; k++) {
+      x += rng.range(-46, 46);
+      y += rng.range(-30, 30);
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** 阴间主题：地面裂缝透出的火光 */
+function paintFireDecor(ctx, W, H, rng) {
+  ctx.save();
+  // 岩浆裂缝
+  for (let i = 0; i < 5; i++) {
+    const x = rng.range(W * 0.12, W * 0.88);
+    const y = rng.range(H * 0.12, H * 0.88);
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#c23a1a';
+    ctx.lineWidth = rng.range(2.5, 5);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + rng.range(-40, 40), y + rng.range(-22, 22));
+    ctx.lineTo(x + rng.range(-70, 70), y + rng.range(-36, 36));
+    ctx.stroke();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = '#ff9a3a';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Boss 房：中央大骷髅印记 + 四周血色 */
 function paintBossDecor(ctx, W, H, rng) {
   ctx.save();
@@ -492,6 +614,69 @@ export function drawObstacle(ctx, x, y, type, seed = 0, t = 0) {
         c.lineTo(3, -12);
         c.closePath();
       }, { fill: '#8d5a26', lineWidth: 2.4 });
+      break;
+    }
+    case 'bone': {
+      // 骨堆：叠放的头骨 + 两根交叉骨
+      ctx.save();
+      ctx.rotate(rng.range(-0.3, 0.3));
+      ctx.strokeStyle = PAL.boneShade;
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-15, 8); ctx.lineTo(15, 2);
+      ctx.moveTo(-14, 0); ctx.lineTo(15, 10);
+      ctx.stroke();
+      ctx.strokeStyle = PAL.bone;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-15, 8); ctx.lineTo(15, 2);
+      ctx.moveTo(-14, 0); ctx.lineTo(15, 10);
+      ctx.stroke();
+      // 头骨
+      inkShape(ctx, (c) => c.ellipse(0, -3, 12, 10, 0, 0, TAU), { fill: PAL.bone, lineWidth: 2.8 });
+      ctx.fillStyle = '#2a2420';
+      ctx.beginPath();
+      ctx.arc(-4, -4, 2.8, 0, TAU);
+      ctx.arc(4, -4, 2.8, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = PAL.boneShade;
+      ctx.fillRect(-3.4, 4, 6.8, 4.4);
+      ctx.restore();
+      break;
+    }
+    case 'flesh': {
+      // 血肉块：搏动的肉团 + 血管
+      const pulse = 1 + Math.sin(t * 2.6 + seed) * 0.05;
+      ctx.save();
+      ctx.scale(pulse, pulse);
+      inkShape(ctx, (c) => {
+        const n = 9;
+        const pts = [];
+        for (let i = 0; i < n; i++) {
+          const a = -Math.PI / 2 + (i / n) * TAU;
+          const rr = 18 * rng.range(0.84, 1.06);
+          pts.push({ x: Math.cos(a) * rr, y: Math.sin(a) * rr * 0.94 });
+        }
+        c.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
+        c.closePath();
+      }, { fill: PAL.fleshBlock, lineWidth: 3 });
+      // 血管
+      ctx.strokeStyle = PAL.fleshBlockShade;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-9, -4); ctx.quadraticCurveTo(0, 2, 9, -5);
+      ctx.moveTo(-4, 8); ctx.quadraticCurveTo(2, 2, 7, 8);
+      ctx.stroke();
+      // 高光
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = '#e08a8a';
+      ctx.beginPath();
+      ctx.ellipse(-5, -6, 6, 4, -0.4, 0, TAU);
+      ctx.fill();
+      ctx.restore();
       break;
     }
     case 'spike': {
