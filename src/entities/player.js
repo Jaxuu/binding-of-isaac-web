@@ -15,13 +15,25 @@
 import { clamp, TAU } from '../core/math.js';
 import { BASE_STATS, computeStats } from './stats.js';
 
+/**
+ * 玩家整体缩放系数（视觉与碰撞体必须共用本常量）。
+ *
+ * 1 = 原始尺寸。取 2/3 的原因：原始角色体积偏大，敌方弹幕难以躲避。
+ *   · 视觉：高度 59px → 约 40px（由 visual.scale 驱动，见 art/draw-player.js 的 ctx.scale(s,s)）
+ *   · 碰撞：半径 13 → 约 8.67（驱动子弹命中、障碍阻挡、房间边界、拾取范围）
+ *
+ * 两者一定要同步：只改视觉会出现「看起来变小、实际判定照旧」的错位，
+ * 玩家会觉得「明明躲开了却掉血」；只改碰撞则会出现「没碰到却撞墙」。
+ */
+export const PLAYER_SCALE = 2 / 3;
+
 export class Player {
   constructor(x, y) {
     this.x = x;
     this.y = y;
     this.vx = 0;
     this.vy = 0;
-    this.radius = 13;
+    this.radius = 13 * PLAYER_SCALE;
 
     // ---- 属性 ----
     /** @type {Array<{flat?:object, mult?:object}>} 道具修正列表 */
@@ -60,7 +72,7 @@ export class Player {
       halo: false,
       wings: false,
       skin: null,
-      scale: 1,
+      scale: PLAYER_SCALE,
     };
 
     // ---- 武器特性（由 ItemSystem 写入）----
