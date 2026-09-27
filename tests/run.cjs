@@ -307,10 +307,18 @@ function testSrcIntegrity() {
   })(srcDir);
   ok(`src 下有模块 (${files.length} 个)`, files.length > 0);
 
+  // 去掉注释后再做「裸露 ctx」检查。
+  // 理由：注释里提到 ctx.xxx() 不可能造成运行时错误，直接扫原文会误报
+  //（本项目的历史误报源：在注释里写了 ctx.scale(s, s) 解释缩放位置）。
+  // 注意：TODO/FIXME 检查仍用原文 —— 那些标记本来就写在注释里。
+  const stripComments = (s) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:\\])\/\/[^\n]*/g, '$1');
+
   let todoCount = 0, undefinedRef = 0;
   for (const f of files) {
-    const code = fs.readFileSync(f, 'utf8');
-    if (/\bTODO\b|\bFIXME\b/.test(code)) todoCount++;
+    const raw = fs.readFileSync(f, 'utf8');
+    if (/\bTODO\b|\bFIXME\b/.test(raw)) todoCount++;
+    const code = stripComments(raw);
     // 常见笔误：ctx 未定义却使用
     // 判定：出现 `ctx.xxx(` 但没有把 ctx 作为形参或局部变量引入。
     // 注意形参签名有两大类，早期版本只认第一类，导致类方法（如 _drawStick(ctx, ...)）被误报：
