@@ -32,6 +32,7 @@ export class Room {
     this.kind = meta.kind;
     this.depth = meta.depth;
     this.doors = meta.doors;
+    this._doorRects = null; // doorRects() 记忆化缓存（doors 生成后不可变，见下）
 
     // 世界坐标：内容区左上角
     this.x = 0;
@@ -82,8 +83,15 @@ export class Room {
     return ROOM_H - PLAY_PAD;
   }
 
-  /** 门的世界触发区（矩形） */
+  /**
+   * 门的世界触发区（矩形）
+   *
+   * 记忆化：`this.doors` 在地牢生成后**永不变化**，故返回值恒定，可安全缓存，
+   * 避免热路径（每帧 `_checkDoors` + `_clampPlayer`）重复分配数组。
+   * 调用方**只读遍历**，不得修改返回的数组或其元素。
+   */
   doorRects() {
+    if (this._doorRects) return this._doorRects;
     const doorSpan = TILE * 2.2;
     const t = WALL_T + 8; // 触发区厚度（跨过墙体）
     const out = [];
@@ -99,6 +107,7 @@ export class Room {
     if (this.doors.right) {
       out.push({ dir: 'right', x: ROOM_W - PLAY_PAD * 0.6, y: ROOM_H / 2 - doorSpan / 2, w: t + PLAY_PAD * 0.6, h: doorSpan });
     }
+    this._doorRects = out;
     return out;
   }
 

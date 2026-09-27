@@ -12,6 +12,9 @@ node_modules/
 tests/shots/
 tests/screenshots/
 tests/last-run-*.json
+# 每次跑门可通行性验证都会重新生成的证据文件（与 last-run-*.json 同性质）；
+# 人读报告 tests/qa-report-door.md 仍入库。
+tests/qa-door-independent.result.json
 
 # --- 一次性诊断 / 探针脚本（team-lead 指定）---
 tests/_diag*.mjs

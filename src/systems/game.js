@@ -756,37 +756,41 @@ export class GameState {
   }
 
   _clampPlayer(p, room) {
-    // 如果已清房，允许玩家走进门区（由 _checkDoors 处理传送），
-    // 因此在门对应的边留出空间；否则严格夹住。
     const pad = p.radius + 4;
-    if (room.cleared) {
-      const doorSpan = TILE * 1.1;
-      const nearDoorX = Math.abs(p.x - ROOM_W / 2) < doorSpan;
-      const nearDoorY = Math.abs(p.y - ROOM_H / 2) < doorSpan;
-      // 上
-      if (room.doors.up && nearDoorX) {
-        p.y = clamp(p.y, -20, ROOM_H - pad);
-      } else {
-        p.y = clamp(p.y, PLAY_PAD + p.radius * 0.2, ROOM_H - pad);
-      }
-      if (room.doors.down && nearDoorX) {
-        p.y = clamp(p.y, pad, ROOM_H + 20);
-      }
-      if (room.doors.left && nearDoorY) {
-        p.x = clamp(p.x, -20, ROOM_W - pad);
-      } else {
-        p.x = clamp(p.x, PLAY_PAD + p.radius * 0.2, ROOM_W - pad);
-      }
-      if (room.doors.right && nearDoorY) {
-        p.x = clamp(p.x, pad, ROOM_W + 20);
-      }
-      // 通用兜底
-      p.x = clamp(p.x, -20, ROOM_W + 20);
-      p.y = clamp(p.y, -20, ROOM_H + 20);
-    } else {
+
+    // 未清房：严格限制在活动区内（不能穿门，这是设计意图，行为保持不变）
+    if (!room.cleared) {
       p.x = clamp(p.x, PLAY_PAD + p.radius * 0.2, ROOM_W - pad);
       p.y = clamp(p.y, PLAY_PAD + p.radius * 0.2, ROOM_H - pad);
+      return;
     }
+
+    // 已清房：允许玩家走进门区（由 _checkDoors 处理传送）。
+    //
+    // FIX-004：原实现是「顺序 clamp」——后一句会把前一句放宽的边界重新收紧：
+    //   · 右门：p.x 被 else 分支夹到 ROOM_W - pad = 607，而右门触发区起点是 610.8 → 永远差 3.8px；
+    //   · 下门同理（319 vs 322.8）；
+    //   · 同房间存在下门时，上门那句放宽到 -20 又被下门那句夹回 y >= pad → 上门也被封死。
+    //   实测：up 56% / down 0% / left 79% / right 0%，18/36 房间全门锁死 → 流程硬卡。
+    //
+    // 现改为「每轴只 clamp 一次，边界取 活动区 ∪ 门洞 的并集」：
+    //   · 消除顺序依赖；
+    //   · 越界深度直接取自 doorRects() 的矩形边界（与 _checkDoors 触发区同源，几何永不漂移）；
+    //   · span 判定使用「夹制前」的坐标，与 _checkDoors 的判定基准保持一致。
+    let minX = PLAY_PAD + p.radius * 0.2;
+    let maxX = ROOM_W - pad;
+    let minY = PLAY_PAD + p.radius * 0.2;
+    let maxY = ROOM_H - pad;
+
+    for (const r of room.doorRects()) {
+      if (r.dir === 'left' && p.y > r.y && p.y < r.y + r.h) minX = Math.min(minX, r.x);
+      if (r.dir === 'right' && p.y > r.y && p.y < r.y + r.h) maxX = Math.max(maxX, r.x + r.w);
+      if (r.dir === 'up' && p.x > r.x && p.x < r.x + r.w) minY = Math.min(minY, r.y);
+      if (r.dir === 'down' && p.x > r.x && p.x < r.x + r.w) maxY = Math.max(maxY, r.y + r.h);
+    }
+
+    p.x = clamp(p.x, minX, maxX);
+    p.y = clamp(p.y, minY, maxY);
   }
 
   // ==================== 敌人死亡 ====================
