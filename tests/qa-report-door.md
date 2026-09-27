@@ -223,6 +223,12 @@ node tests/qa-door-independent.mjs a b c d e m
 cat tests/qa-door-independent.result.json
 ```
 
+> 注：本次验收环境对**单次长任务**存在 ~12 分钟上限（`all` 单次约 15 分钟易被中断）。
+> 随报告的 `result.json` 为一次**完整 `all` 运行**的输出（19 项断言全绿、`verdict=PASS`，
+> 产物指纹 `2367e0a1…ff7ef9`、脚本 `sha256 57bb22f5…cb57`）；
+> 此前分段运行（`a b e m` + `d` + `c`，同一最终脚本）结果与之一致，可交叉印证。
+> 单条命令 `node tests/qa-door-independent.mjs`（无参数）等价于 `all`。
+
 ---
 
 ### §3.1 门洞隧道上界探测（c5）实测明细
