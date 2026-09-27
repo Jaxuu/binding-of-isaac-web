@@ -14,8 +14,11 @@ export class Audio {
     /** @type {AudioContext|null} */
     this.ctx = null;
     this.master = null;
+    /** 配乐独立总线（与音效分开调音；见 core/music.js） */
+    this.musicGain = null;
     this.muted = false;
     this.volume = 0.5;
+    this.musicVolume = 0.42;
     this._unlocked = false;
     this._noiseBuf = null;
   }
@@ -33,6 +36,10 @@ export class Audio {
       this.master = this.ctx.createGain();
       this.master.gain.value = this.volume;
       this.master.connect(this.ctx.destination);
+      // 配乐总线：musicGain → master → destination
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = this.musicVolume;
+      this.musicGain.connect(this.master);
       this._noiseBuf = this._makeNoiseBuffer(0.5);
       this._unlocked = true;
       if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -46,9 +53,21 @@ export class Audio {
     if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
   }
 
+  /** 配乐音量（独立于音效） */
+  setMusicVolume(v) {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.musicGain) this.musicGain.gain.value = this.muted ? 0 : this.musicVolume;
+  }
+
   setMuted(m) {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : this.volume;
+  }
+
+  /** 切换静音，返回切换后的状态 */
+  toggleMuted() {
+    this.setMuted(!this.muted);
+    return this.muted;
   }
 
   /** 生成白噪声缓冲，供爆炸/受击等音效使用 */

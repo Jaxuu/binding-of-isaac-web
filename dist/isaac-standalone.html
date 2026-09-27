@@ -248,8 +248,11 @@ class Audio {
     /** @type {AudioContext|null} */
     this.ctx = null;
     this.master = null;
+    /** 配乐独立总线（与音效分开调音；见 core/music.js） */
+    this.musicGain = null;
     this.muted = false;
     this.volume = 0.5;
+    this.musicVolume = 0.42;
     this._unlocked = false;
     this._noiseBuf = null;
   }
@@ -267,6 +270,10 @@ class Audio {
       this.master = this.ctx.createGain();
       this.master.gain.value = this.volume;
       this.master.connect(this.ctx.destination);
+      // 配乐总线：musicGain → master → destination
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = this.musicVolume;
+      this.musicGain.connect(this.master);
       this._noiseBuf = this._makeNoiseBuffer(0.5);
       this._unlocked = true;
       if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -280,9 +287,21 @@ class Audio {
     if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
   }
 
+  /** 配乐音量（独立于音效） */
+  setMusicVolume(v) {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.musicGain) this.musicGain.gain.value = this.muted ? 0 : this.musicVolume;
+  }
+
   setMuted(m) {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : this.volume;
+  }
+
+  /** 切换静音，返回切换后的状态 */
+  toggleMuted() {
+    this.setMuted(!this.muted);
+    return this.muted;
   }
 
   /** 生成白噪声缓冲，供爆炸/受击等音效使用 */
@@ -5403,6 +5422,547 @@ function fmtNum(n) {
 
   };
 
+  __defs["./core/music.js"] = function (exports, __req) {
+/**
+ * music.js — 逐层程序化配乐（零音频文件）
+ *
+ * 设计参考（联网检索：《以撒的结合：重生》原声，作曲 Ridiculon）：
+ *   原作每个楼层有一首主曲，并且**当房间内敌人/Boss 足够多时会叠加「加重变体」乐器**
+ *   （Wiki 明确标注了每层叠加的乐器：吉他 / 低音吉他 / 鼓 / 环境音效 / 背景合唱）。
+ *   本模块照此机制实现：`setCombat(true)` 时启用该层的加重层。
+ *
+ * ⚠️ 版权说明：本项目**不包含、不还原**任何原作旋律或音频素材。
+ *   所有音符由 Web Audio 实时合成，每层的调式/速度/音色/节奏型均为**原创设计**，
+ *   仅在「情绪取向 + 加重乐器」这一层面对原作做致敬性对应。
+ *
+ * 楼层 ↔ 参考曲目 ↔ 加重乐器（对照表，见 FLOOR_TRACKS）：
+ *   B1 Basement   Diptera Sonata        [Guitar]
+ *   B2 Cellar     Periculum             [Guitar]
+ *   B3 Caves      Sodden Hollow         [Bass guitar]
+ *   B4 Catacombs  Capiticus Calvaria    [Guitar]
+ *   B5 Depths     Abyss                 [Ambient]
+ *   B6 Necropolis When Blood Dries      [Guitar]
+ *   B7 Womb       Viscera               [Drums]
+ *   B8 Utero       Viscera (heavier)    [Drums]
+ *   B9 Sheol      Duress                [Drums]
+ *   B10 Cathedral Everlasting Hymn      [Backing choir]
+ *   B11 Chest     Sketches of Pain      [Guitar]
+ *   B12 Dark Room Devoid                [—]（本作补一层低频嗡鸣，见下）
+ *
+ * 时序：调度由 GameState.update（固定 60Hz）驱动，使用「前瞻调度」——
+ *   每次把 currentTime + 0.12s 之内的音符排进 Web Audio 的时间轴，
+ *   因此节拍不受帧率抖动影响（不依赖 setInterval，便于测试与暂停）。
+ */
+
+/** 调式（半音偏移） */
+const SCALES = {
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  lydian: [0, 2, 4, 6, 7, 9, 11],
+  wholeTone: [0, 2, 4, 6, 8, 10],
+};
+
+/**
+ * 12 层配乐定义。
+ * bassPat / arpPat 为 8 分音符网格（每小节 8 格）：
+ *   bassPat：'x' = 和弦根音，'5' = 五度，'3' = 三度，'.' = 休止
+ *   arpPat ：'.' = 休止，'0'..'6' = 音阶级数（叠加 arpOct 八度）
+ * drums：none / soft / medium / heavy / heart（心跳）
+ * combat：none / guitar / bass / drums / choir / ambient（加重变体）
+ */
+const FLOOR_TRACKS = [
+  {
+    id: 'basement', name: 'Diptera Sonata',
+    bpm: 96, root: 110.0, scale: SCALES.minor, prog: [0, 5, 3, 4],
+    bassPat: 'x.x.5.x.', arpPat: '.0.2.4.2', arpOct: 2,
+    drums: 'soft', combat: 'guitar', ambience: 0.18,
+    padWave: 'triangle', bassWave: 'triangle', leadWave: 'square',
+  },
+  {
+    id: 'cellar', name: 'Periculum',
+    bpm: 104, root: 73.42, scale: SCALES.dorian, prog: [0, 3, 5, 4],
+    bassPat: 'x.xx..5.', arpPat: '..2.3.2.', arpOct: 2,
+    drums: 'soft', combat: 'guitar', ambience: 0.2,
+    padWave: 'sawtooth', bassWave: 'triangle', leadWave: 'square',
+  },
+  {
+    id: 'caves', name: 'Sodden Hollow',
+    bpm: 88, root: 82.41, scale: SCALES.phrygian, prog: [0, 1, 5, 4],
+    bassPat: 'x...5...', arpPat: '.1..0..1', arpOct: 2,
+    drums: 'soft', combat: 'bass', ambience: 0.34,
+    padWave: 'triangle', bassWave: 'sawtooth', leadWave: 'triangle',
+  },
+  {
+    id: 'catacombs', name: 'Capiticus Calvaria',
+    bpm: 112, root: 65.41, scale: SCALES.harmonicMinor, prog: [0, 4, 5, 0],
+    bassPat: 'x.x5x.x5', arpPat: '0.4.6.4.', arpOct: 2,
+    drums: 'medium', combat: 'guitar', ambience: 0.16,
+    padWave: 'sawtooth', bassWave: 'sawtooth', leadWave: 'square',
+  },
+  {
+    id: 'depths', name: 'Abyss',
+    bpm: 72, root: 43.65, scale: SCALES.locrian, prog: [0, 1, 3, 2],
+    bassPat: 'x.......', arpPat: '........', arpOct: 3,
+    drums: 'none', combat: 'ambient', ambience: 0.55,
+    padWave: 'sine', bassWave: 'sine', leadWave: 'triangle',
+  },
+  {
+    id: 'necropolis', name: 'When Blood Dries',
+    bpm: 100, root: 61.74, scale: SCALES.phrygian, prog: [0, 5, 1, 4],
+    bassPat: 'x.x.x.5.', arpPat: '.2.1.0.1', arpOct: 2,
+    drums: 'medium', combat: 'guitar', ambience: 0.24,
+    padWave: 'sawtooth', bassWave: 'triangle', leadWave: 'square',
+  },
+  {
+    id: 'womb', name: 'Viscera',
+    bpm: 84, root: 49.0, scale: SCALES.minor, prog: [0, 3, 4, 5],
+    bassPat: 'x..x..x.', arpPat: '.0..2...', arpOct: 3,
+    drums: 'heart', combat: 'drums', ambience: 0.3,
+    padWave: 'sine', bassWave: 'sine', leadWave: 'triangle',
+  },
+  {
+    id: 'utero', name: 'Viscera (Utero)',
+    bpm: 94, root: 51.91, scale: SCALES.harmonicMinor, prog: [0, 5, 3, 4],
+    bassPat: 'x.x.x.x.', arpPat: '.2.4.3.2', arpOct: 3,
+    drums: 'heart', combat: 'drums', ambience: 0.3,
+    padWave: 'triangle', bassWave: 'sine', leadWave: 'square',
+  },
+  {
+    id: 'sheol', name: 'Duress',
+    bpm: 122, root: 55.0, scale: SCALES.phrygian, prog: [0, 1, 5, 4],
+    bassPat: 'x.x5x.x5', arpPat: '0.1.3.1.', arpOct: 2,
+    drums: 'heavy', combat: 'drums', ambience: 0.14,
+    padWave: 'sawtooth', bassWave: 'sawtooth', leadWave: 'sawtooth',
+  },
+  {
+    id: 'cathedral', name: 'Everlasting Hymn',
+    bpm: 76, root: 130.81, scale: SCALES.lydian, prog: [0, 4, 3, 5],
+    bassPat: 'x.......', arpPat: '0..2..4.', arpOct: 1,
+    drums: 'none', combat: 'choir', ambience: 0.42,
+    padWave: 'sine', bassWave: 'sine', leadWave: 'sine',
+  },
+  {
+    id: 'chest', name: 'Sketches of Pain',
+    bpm: 108, root: 146.83, scale: SCALES.dorian, prog: [0, 3, 4, 5],
+    bassPat: 'x.5.x.x.', arpPat: '.0.3.2.4', arpOct: 2,
+    drums: 'medium', combat: 'guitar', ambience: 0.2,
+    padWave: 'triangle', bassWave: 'triangle', leadWave: 'square',
+  },
+  {
+    id: 'darkroom', name: 'Devoid',
+    bpm: 64, root: 65.41, scale: SCALES.wholeTone, prog: [0, 2, 4, 3],
+    bassPat: 'x.......', arpPat: '..0...2.', arpOct: 3,
+    drums: 'none', combat: 'ambient', ambience: 0.6,
+    padWave: 'sine', bassWave: 'sine', leadWave: 'triangle',
+  },
+];
+
+/** 取某层配乐（1 基；越界钳制） */
+function trackForFloor(n) {
+  const i = Math.max(0, Math.min(FLOOR_TRACKS.length - 1, (Math.floor(n) || 1) - 1));
+  return FLOOR_TRACKS[i];
+}
+
+class MusicPlayer {
+  /**
+   * @param {import('./audio.js').Audio} audio
+   */
+  constructor(audio) {
+    this.audio = audio;
+    this.track = null;
+    this.playing = false;
+    this.paused = false;
+    this.combat = false;
+    this._step = 0; // 8 分音符步进
+    this._bar = 0;
+    this._nextTime = 0;
+    this._stepDur = 0.3;
+    this._wantFloor = null; // 音频尚未解锁时暂存
+  }
+
+  /** 切换/开始某层配乐（音频未解锁时先记住，解锁后自动开播） */
+  play(floor) {
+    this._wantFloor = floor;
+    this._beginIfReady();
+  }
+
+  /** 停止（回到标题 / 死亡 / 通关） */
+  stop() {
+    this._wantFloor = null;
+    this.playing = false;
+    this.paused = false;
+    this.track = null;
+  }
+
+  /** 暂停（暂停菜单：停止推进节拍） */
+  setPaused(p) {
+    this.paused = !!p;
+  }
+
+  /** 战斗强度：房间内有存活敌人时启用「加重变体」层（对应原作机制） */
+  setCombat(on) {
+    this.combat = !!on;
+  }
+
+  /** 当前曲目名（调试/UI 用） */
+  get trackName() {
+    return this.track ? this.track.name : '';
+  }
+
+  _beginIfReady() {
+    const a = this.audio;
+    if (!a || !a.ctx || this._wantFloor == null) return;
+    const t = trackForFloor(this._wantFloor);
+    if (this.playing && this.track && this.track.id === t.id) return;
+    this.track = t;
+    this._stepDur = 60 / t.bpm / 2; // 8 分音符
+    this._step = 0;
+    this._bar = 0;
+    this._nextTime = a.ctx.currentTime + 0.08;
+    this.playing = true;
+    this.paused = false;
+  }
+
+  /**
+   * 由 GameState.update 每帧调用（固定 60Hz）。
+   * 只做「前瞻调度」：把 0.12s 内的音符排进音频时间轴。
+   */
+  update() {
+    if (!this.playing) this._beginIfReady();
+    if (!this.playing || this.paused) return;
+    const a = this.audio;
+    if (!a || !a.ctx) return;
+    if (a.ctx.state === 'suspended') return; // 未解锁/被挂起时不动时间轴
+
+    const ahead = 0.12;
+    let guard = 0;
+    while (this._nextTime < a.ctx.currentTime + ahead && guard++ < 64) {
+      this._scheduleStep(this._step, this._nextTime);
+      this._nextTime += this._stepDur;
+      this._step++;
+      if (this._step >= 8) {
+        this._step = 0;
+        this._bar++;
+      }
+    }
+    // 若长时间被挂起（切后台），把时间轴拉回当前，避免一次性补播大量音符
+    if (this._nextTime < a.ctx.currentTime) this._nextTime = a.ctx.currentTime + 0.05;
+  }
+
+  // ================= 内部：调度 =================
+
+  _scheduleStep(step, time) {
+    const t = this.track;
+    if (!t) return;
+    const a = this.audio;
+    if (a.muted) return; // 静音时不创建节点（省 CPU），节拍仍照常推进
+
+    const chordDeg = t.prog[this._bar % t.prog.length];
+    const bus = a.musicGain;
+
+    // ---- 鼓组 ----
+    this._drums(t.drums, step, time);
+
+    // ---- 低音 ----
+    const b = t.bassPat[step] || '.';
+    if (b === 'x') this._voice(t.bassWave, this._deg(t, chordDeg, 0), time, this._stepDur * 1.7, 0.2, 'bass');
+    else if (b === '5') this._voice(t.bassWave, this._deg(t, chordDeg + 4, 0), time, this._stepDur * 1.4, 0.16, 'bass');
+    else if (b === '3') this._voice(t.bassWave, this._deg(t, chordDeg + 2, 0), time, this._stepDur * 1.4, 0.15, 'bass');
+
+    // ---- 铺垫和弦（每小节第 0 步）----
+    // 电平刻意压低：垫底用，给「加重变体」留出可听的动态空间
+    if (step === 0) {
+      const dur = this._stepDur * 8;
+      for (const d of [0, 2, 4]) {
+        this._voice(t.padWave, this._deg(t, chordDeg + d, 1), time, dur, 0.032, 'pad');
+      }
+    }
+
+    // ---- 主旋律 / 琶音 ----
+    const arp = t.arpPat[step] || '.';
+    if (arp !== '.') {
+      const deg = chordDeg + parseInt(arp, 10);
+      this._voice(t.leadWave, this._deg(t, deg, t.arpOct), time, this._stepDur * 1.25, 0.075, 'lead');
+    }
+
+    // ---- 加重变体（战斗层，对应原作「敌人多时叠加乐器」）----
+    if (this.combat) this._combatLayer(t, step, chordDeg, time);
+
+    // ---- 环境延迟（Abyss / Cathedral 等氛围）----
+    if (t.ambience > 0.3 && step === 0) this._swell(t, chordDeg, time, bus);
+  }
+
+  /** 加重层：吉他 / 低音吉他 / 鼓 / 合唱 / 环境 */
+  _combatLayer(t, step, chordDeg, time) {
+    switch (t.combat) {
+      case 'guitar': {
+        // 反拍强力和弦（失真锯齿）—— 原作的「吉他加重」
+        if (step % 2 === 1 || step === 2 || step === 6) {
+          this._powerChord(this._deg(t, chordDeg, 2), time, this._stepDur * 1.05, 0.16);
+        }
+        break;
+      }
+      case 'bass': {
+        // 低音吉他 8 分推进 —— 原作的「低音吉他加重」
+        this._voice('sawtooth', this._deg(t, chordDeg, 0) / 2, time, this._stepDur * 0.9, 0.22, 'bass');
+        break;
+      }
+      case 'drums': {
+        // 加花：通鼓 + 镲 —— 原作的「鼓加重」
+        if (step === 3 || step === 7) this._tom(time, 150);
+        if (step % 2 === 0) this._hat(time, 0.08);
+        break;
+      }
+      case 'choir': {
+        // 背景合唱（正弦簇，缓慢起音）—— 原作的「背景合唱加重」
+        if (step === 0) {
+          for (const d of [0, 4, 7]) {
+            this._voice('sine', this._deg(t, chordDeg + d, 2), time, this._stepDur * 8, 0.075, 'choir');
+          }
+        }
+        break;
+      }
+      case 'ambient': {
+        // 低频嗡鸣 + 噪声涌动 —— 原作的「环境音效加重」
+        if (step === 0) {
+          this._voice('sine', this._deg(t, chordDeg, 0) / 2, time, this._stepDur * 8, 0.16, 'bass');
+          this.audio.noise({ dur: 1.6, gain: 0.08, filterFrom: 400, filterTo: 90, delay: Math.max(0, time - this.audio.ctx.currentTime) });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /** 音阶级数 → 频率 */
+  _deg(t, degree, octave) {
+    const n = t.scale.length;
+    const idx = ((degree % n) + n) % n;
+    const oct = octave + Math.floor(degree / n);
+    return t.root * Math.pow(2, (t.scale[idx] + 12 * oct) / 12);
+  }
+
+  // ================= 内部：合成 =================
+
+  /**
+   * 单音（振荡器 + 包络）
+   * @param {string} wave
+   * @param {number} freq
+   * @param {number} time 绝对音频时间
+   * @param {number} dur
+   * @param {number} gain
+   * @param {string} role 'pad' | 'bass' | 'lead' | 'choir'
+   */
+  _voice(wave, freq, time, dur, gain, role) {
+    const a = this.audio;
+    if (!a.ctx || freq <= 0) return;
+    const osc = a.ctx.createOscillator();
+    const g = a.ctx.createGain();
+    osc.type = wave;
+    osc.frequency.setValueAtTime(freq, time);
+
+    const attack = role === 'choir' ? 0.5 : role === 'pad' ? 0.12 : 0.012;
+    const rel = role === 'pad' || role === 'choir' ? 0.6 : 0.18;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + attack);
+    g.gain.setValueAtTime(gain, time + Math.max(attack, dur * 0.6));
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur + rel);
+
+    osc.connect(g);
+    g.connect(a.musicGain);
+    osc.start(time);
+    osc.stop(time + dur + rel + 0.05);
+    osc.onended = () => {
+      osc.disconnect();
+      g.disconnect();
+    };
+  }
+
+  /** 失真强力和弦（两层失谐锯齿 + 低通） */
+  _powerChord(freq, time, dur, gain) {
+    const a = this.audio;
+    if (!a.ctx) return;
+    const g = a.ctx.createGain();
+    const lp = a.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2400, time);
+    lp.Q.value = 1.2;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    lp.connect(g);
+    g.connect(a.musicGain);
+    const oscs = [];
+    for (const det of [-7, 7]) {
+      const osc = a.ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, time);
+      osc.detune.setValueAtTime(det, time);
+      osc.connect(lp);
+      osc.start(time);
+      osc.stop(time + dur + 0.05);
+      oscs.push(osc);
+    }
+    // GainNode / BiquadFilterNode 没有 onended 事件，统一挂到最后一个振荡器上回收，
+    // 否则这些节点会一直留在图上（长期跑会累积成泄漏）。
+    oscs[oscs.length - 1].onended = () => {
+      for (const o of oscs) o.disconnect();
+      lp.disconnect();
+      g.disconnect();
+    };
+  }
+
+  // ---- 鼓组 ----
+  _drums(style, step, time) {
+    if (style === 'none') return;
+    const a = this.audio;
+    if (!a.ctx) return;
+    if (style === 'heart') {
+      // 心跳：每小节两下「咚—咚」
+      if (step === 0 || step === 3) this._kick(time, step === 0 ? 62 : 52);
+      return;
+    }
+    const patterns = {
+      soft: { kick: [0], snare: [4], hat: [2, 6] },
+      medium: { kick: [0, 3], snare: [4, 7], hat: [1, 3, 5, 7] },
+      heavy: { kick: [0, 2, 3], snare: [4, 6, 7], hat: [0, 1, 2, 3, 4, 5, 6, 7] },
+    };
+    const p = patterns[style];
+    if (!p) return;
+    if (p.kick.indexOf(step) >= 0) this._kick(time, 58);
+    if (p.snare.indexOf(step) >= 0) this._snare(time);
+    if (p.hat.indexOf(step) >= 0) this._hat(time, style === 'heavy' ? 0.07 : 0.05);
+  }
+
+  _kick(time, freq) {
+    const a = this.audio;
+    const osc = a.ctx.createOscillator();
+    const g = a.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, time);
+    osc.frequency.exponentialRampToValueAtTime(30, time + 0.14);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.3, time + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
+    osc.connect(g);
+    g.connect(a.musicGain);
+    osc.start(time);
+    osc.stop(time + 0.24);
+    osc.onended = () => {
+      osc.disconnect();
+      g.disconnect();
+    };
+  }
+
+  _snare(time) {
+    const a = this.audio;
+    if (!a._noiseBuf) return;
+    const src = a.ctx.createBufferSource();
+    src.buffer = a._noiseBuf;
+    const filt = a.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 1800;
+    filt.Q.value = 0.8;
+    const g = a.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.16, time + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.13);
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(a.musicGain);
+    src.start(time);
+    src.stop(time + 0.16);
+    src.onended = () => {
+      src.disconnect();
+      filt.disconnect();
+      g.disconnect();
+    };
+  }
+
+  _hat(time, gain) {
+    const a = this.audio;
+    if (!a._noiseBuf) return;
+    const src = a.ctx.createBufferSource();
+    src.buffer = a._noiseBuf;
+    const filt = a.ctx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 7000;
+    const g = a.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(a.musicGain);
+    src.start(time);
+    src.stop(time + 0.07);
+    src.onended = () => {
+      src.disconnect();
+      filt.disconnect();
+      g.disconnect();
+    };
+  }
+
+  _tom(time, freq) {
+    const a = this.audio;
+    const osc = a.ctx.createOscillator();
+    const g = a.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, time);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, time + 0.16);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.2, time + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
+    osc.connect(g);
+    g.connect(a.musicGain);
+    osc.start(time);
+    osc.stop(time + 0.24);
+    osc.onended = () => {
+      osc.disconnect();
+      g.disconnect();
+    };
+  }
+
+  /** 低频涌动（Abyss / Dark Room 的氛围层） */
+  _swell(t, chordDeg, time, bus) {
+    const a = this.audio;
+    if (!a._noiseBuf) return;
+    const src = a.ctx.createBufferSource();
+    src.buffer = a._noiseBuf;
+    src.loop = true;
+    const filt = a.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(160, time);
+    filt.frequency.linearRampToValueAtTime(420, time + this._stepDur * 4);
+    filt.frequency.linearRampToValueAtTime(160, time + this._stepDur * 8);
+    const g = a.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(0.05 * t.ambience, time + this._stepDur * 3);
+    g.gain.linearRampToValueAtTime(0.0001, time + this._stepDur * 8);
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(bus);
+    src.start(time);
+    src.stop(time + this._stepDur * 8 + 0.1);
+    src.onended = () => {
+      src.disconnect();
+      filt.disconnect();
+      g.disconnect();
+    };
+  }
+}
+
+  /* ---- exports ---- */
+  exports.trackForFloor = trackForFloor;
+  exports.MusicPlayer = MusicPlayer;
+  exports.FLOOR_TRACKS = FLOOR_TRACKS;
+
+  };
+
   __defs["./systems/dungeon.js"] = function (exports, __req) {
 /**
  * dungeon.js — 地牢生成
@@ -6588,6 +7148,7 @@ var { Enemy, updateEnemyAI } = __req("./entities/enemy.js");
 var { Boss, updateBoss } = __req("./entities/boss.js");
 var { Combat } = __req("./systems/combat.js");
 var { ParticleSystem } = __req("./art/particles.js");
+var { MusicPlayer } = __req("./core/music.js");
 var { generateDungeon, validateDungeon, DIRS, roomKey, ROOM_KIND } = __req("./systems/dungeon.js");
 var { Room, populateRoom, ROOM_W, ROOM_H, PLAY_PAD } = __req("./systems/rooms.js");
 var { floorDef, floorCount, FLOORS } = __req("./systems/floors.js");
@@ -6606,9 +7167,6 @@ const SCENE = Object.freeze({
   FLOOR_INTRO: 'floorIntro',
 });
 
-/** 每层主题名（UI 显示）——由 systems/floors.js 统一提供 */
-const BIOMES = FLOORS.map((f) => f.name);
-
 /** 通关所需层数（= 楼层总数） */
 const MAX_FLOOR = floorCount();
 
@@ -6623,6 +7181,8 @@ class GameState {
 
     this.fx = new ParticleSystem();
     this.combat = new Combat(bus, this.fx, audio);
+    /** 逐层程序化配乐（见 core/music.js）；音频未解锁时会暂存待播楼层 */
+    this.music = new MusicPlayer(audio);
 
     this.scene = SCENE.TITLE;
     this.sceneT = 0;
@@ -6642,7 +7202,8 @@ class GameState {
     this.currentRoom = null;
     this.visitedRooms = new Set();
     this.visitedCount = 0;
-    this.biomeName = BIOMES[0];
+    this.biomeName = FLOORS[0].name;
+    this.biomeNameZh = FLOORS[0].nameZh;
 
     // 资源
     this.coins = 0;
@@ -6667,6 +7228,8 @@ class GameState {
     this.itemPanel = null; // {item, t}
     this.transitionT = 0;
     this.transitionLabel = '';
+    /** 静音状态（由 main.js 的 M 键写入，供 HUD 显示） */
+    this.audioMuted = false;
 
     // 输入辅助
     this._prevConfirm = false;
@@ -6726,7 +7289,8 @@ class GameState {
     this.sceneT = 0;
     this.transitionT = 0;
     this.transitionLabel = '';
-    this.biomeName = BIOMES[0];
+    this.biomeName = FLOORS[0].name;
+    this.biomeNameZh = FLOORS[0].nameZh;
     this.bus.emit(EVT.GAME_STARTED, { seed: this.seed });
     this.audio.unlock();
   }
@@ -6734,7 +7298,9 @@ class GameState {
   /** 生成一层地牢并放置玩家到起点房 */
   generateFloor(floor) {
     this.floor = floor;
-    this.biomeName = BIOMES[Math.min(BIOMES.length - 1, floor - 1)];
+    const fd = floorDef(floor);
+    this.biomeName = fd.name;
+    this.biomeNameZh = fd.nameZh;
     this.stats.floorReached = Math.max(this.stats.floorReached, floor);
 
     const dungeon = generateDungeon(this.rng, {
@@ -6784,6 +7350,9 @@ class GameState {
     this.player.invuln = 1.0;
 
     this.bus.emit(EVT.FLOOR_CHANGED, { floor });
+    // 逐层配乐：切层即换曲（音频未解锁时会在解锁后自动开播）
+    this.music.setCombat(false);
+    this.music.play(floor);
   }
 
   // ==================== 场景切换 ====================
@@ -6796,6 +7365,11 @@ class GameState {
     }
     this.scene = s;
     this.sceneT = 0;
+    // 配乐：暂停时停止推进节拍；离开玩法场景（标题/死亡/通关）则停曲。
+    // FLOOR_INTRO 保持播放（换层时 generateFloor 已切到新曲）。
+    if (s === SCENE.PAUSED) this.music.setPaused(true);
+    else if (s === SCENE.PLAYING) this.music.setPaused(false);
+    else if (s === SCENE.TITLE || s === SCENE.DEAD || s === SCENE.WIN) this.music.stop();
     this.bus.emit(EVT.SCENE_CHANGED, s);
   }
 
@@ -6808,6 +7382,9 @@ class GameState {
   update(dt) {
     this.sceneT += dt;
     this.input.update();
+
+    // 配乐前瞻调度（固定 60Hz 驱动；内部只在解锁后生效）
+    this.music.update();
 
     // 震屏衰减
     if (this.shake > 0) {
@@ -6891,6 +7468,9 @@ class GameState {
     const room = this.currentRoom;
 
     this.stats.timeAlive += dt;
+
+    // 加重变体：房间内有存活敌人时叠加该层的战斗乐器层（对应原作机制）
+    this.music.setCombat(room.hasLiveEnemies);
 
     // ---- 暂停输入 ----
     if (this.input.pressed('KeyP') || this.input.pressed('Escape')) {
@@ -10788,6 +11368,15 @@ var { drawHeart, drawSoulHeart, drawBlackHeart, drawCoin, drawKey, drawBomb, ITE
 var { roundRect, roundRectPath, inkShape, strokedText, circle } = __req("./art/primitives.js");
 var { TAU } = __req("./core/math.js");
 var { statBar } = __req("./entities/stats.js");
+var { trackForFloor } = __req("./core/music.js");
+
+/**
+ * 中文 UI 字体栈。
+ * Canvas 的 font 简写里，非 ASCII 字形需要显式给 CJK 字族才能保证字重/字距一致，
+ * 否则浏览器回退字族的字重往往比西文字族细一档。按平台从新到旧排列：
+ * Windows → Microsoft YaHei；macOS → PingFang SC；Linux/通用 → Noto Sans SC / Hiragino。
+ */
+const FONT_UI = '"Microsoft YaHei","PingFang SC","Noto Sans SC","Hiragino Sans GB",sans-serif';
 
 /**
  * 绘制血量（红心 + 魂心 + 黑心）
@@ -10926,9 +11515,10 @@ function drawHUD(ctx, g, W) {
   drawStatBars(ctx, pad, g);
 
   // ---- 右上：层数 + 小地图 ----
-  const floorText = g.biomeName ? `${g.biomeName}  B${g.floor}` : `Basement B${g.floor}`;
+  const biomeZh = g.biomeNameZh || g.biomeName || '';
+  const floorText = `${biomeZh}  第${g.floor}层`;
   strokedText(ctx, floorText, W - pad, pad + 18, {
-    font: 'bold 19px "Trebuchet MS",sans-serif',
+    font: `bold 19px ${FONT_UI}`,
     fill: PAL.uiText,
     lineWidth: 4,
     align: 'right',
@@ -10959,48 +11549,84 @@ function drawHUD(ctx, g, W) {
     });
     if (cr >= 1) {
       ctx.globalAlpha = 0.5 + Math.sin(performance.now() / 90) * 0.4;
-      strokedText(ctx, 'READY', W / 2, by + 30, {
-        font: 'bold 15px "Trebuchet MS",sans-serif', fill: '#ff8a6a', lineWidth: 3, align: 'center',
+      strokedText(ctx, '就绪', W / 2, by + 30, {
+        font: `bold 15px ${FONT_UI}`, fill: '#ff8a6a', lineWidth: 3, align: 'center',
       });
       ctx.globalAlpha = 1;
     }
     ctx.restore();
   }
+
+  // ---- 静音提示（M 键切换）----
+  if (g.audioMuted) {
+    strokedText(ctx, '已静音  ·  按 M 恢复', W / 2, g._h - 14, {
+      font: `bold 14px ${FONT_UI}`, fill: '#c88a6a', lineWidth: 3, align: 'center',
+    });
+  }
 }
 
+/**
+ * 左下角「角色属性面板」。
+ *
+ * 中文标签 + 放大版式（相对旧版：条宽 62→80、条高 7→10、行高 15→20、字号 10→13）。
+ * 位置策略：默认贴底（左下角，桌面端所见即所得）；在**触屏且高视口**（H ≥ 560）下，
+ * 面板会整体移到移动摇杆**下方**，避免与摇杆底盘重叠 —— 摇杆位于 0.78H、半径 52
+ * （见 ui/joystick.js），矮视口（横屏）维持旧行为不变。
+ */
 function drawStatBars(ctx, x, g) {
   const p = g.player;
   const stats = [
-    { key: 'damage', label: 'DMG', color: '#e05a4a' },
-    { key: 'fireDelay', label: 'RATE', color: '#e0a83a' },
-    { key: 'speed', label: 'SPD', color: '#4aa3e0' },
-    { key: 'range', label: 'RNG', color: '#9b6bd6' },
-    { key: 'shotSpeed', label: 'SHOT', color: '#3ac0a0' },
+    { key: 'damage', label: '伤害', color: '#e05a4a' },
+    { key: 'fireDelay', label: '射速', color: '#e0a83a' },
+    { key: 'speed', label: '移速', color: '#4aa3e0' },
+    { key: 'range', label: '射程', color: '#9b6bd6' },
+    { key: 'shotSpeed', label: '弹速', color: '#3ac0a0' },
   ];
-  const bw = 62;
-  const bh = 7;
-  const lineH = 15;
-  // 半透明底板
-  const panelH = stats.length * lineH + 12;
+  const labelW = 40; // 中文标签列宽（两字 × 13px + 间距）
+  const bw = 80; // 属性条宽
+  const bh = 10; // 属性条高
+  const lineH = 20; // 行高
+  const padX = 10;
+  const padY = 9;
+  const panelW = labelW + bw + padX * 2;
+  const panelH = padY * 2 + stats.length * lineH - (lineH - bh);
+
+  // 面板底边
+  let bottom = g._h - 46;
+  const touch = !!(g.input && (g.input.touchCapable || g.input.usingTouch));
+  if (touch && g._h >= 560) {
+    const stickBottom = g._h * 0.78 + 52; // 摇杆底盘下沿
+    bottom = stickBottom + 10 + panelH <= g._h - 8
+      ? stickBottom + 10 + panelH // 摇杆下方有空间 → 整体下移
+      : Math.min(bottom, g._h * 0.78 - 52 - 10); // 否则上移到摇杆上方
+  }
+  const panelX = x - padX;
+  const panelY = bottom - panelH;
+
+  // 半透明底板 + 细边框（提高面板在浅色地砖上的可读性）
   ctx.save();
-  ctx.globalAlpha = 0.55;
-  roundRect(ctx, x - 6, g._h - panelH - 46, bw + 58, panelH, 6, { fill: PAL.uiBg, stroke: null });
+  ctx.globalAlpha = 0.62;
+  roundRect(ctx, panelX, panelY, panelW, panelH, 8, { fill: PAL.uiBg, stroke: null });
+  ctx.restore();
+  ctx.save();
+  ctx.globalAlpha = 0.32;
+  roundRect(ctx, panelX, panelY, panelW, panelH, 8, { fill: null, stroke: PAL.uiTextDim, lineWidth: 1.5 });
   ctx.restore();
 
-  let y = g._h - panelH - 40 + 8;
+  let rowTop = panelY + padY;
   for (const s of stats) {
-    strokedText(ctx, s.label, x, y + bh, {
-      font: 'bold 10px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 2.5,
-    });
-    const bx = x + 34;
+    const bx = x + labelW;
     ctx.save();
-    roundRect(ctx, bx, y, bw, bh, 3, { fill: PAL.uiBarBg, stroke: PAL.ink, lineWidth: 1.6 });
+    roundRect(ctx, bx, rowTop, bw, bh, 4, { fill: PAL.uiBarBg, stroke: PAL.ink, lineWidth: 1.8 });
     const v = statBar(s.key, p.stats[s.key]);
     if (v > 0.01) {
-      roundRect(ctx, bx + 1, y + 1, Math.max(2, (bw - 2) * v), bh - 2, 2, { fill: s.color, stroke: null });
+      roundRect(ctx, bx + 1.5, rowTop + 1.5, Math.max(3, (bw - 3) * v), bh - 3, 3, { fill: s.color, stroke: null });
     }
     ctx.restore();
-    y += lineH;
+    strokedText(ctx, s.label, x, rowTop + bh * 0.5 + 4.5, {
+      font: `bold 13px ${FONT_UI}`, fill: PAL.uiText, lineWidth: 3,
+    });
+    rowTop += lineH;
   }
 }
 
@@ -11216,7 +11842,7 @@ function drawScreenDim(ctx, W, H, alpha = 0.82, tint = 'rgba(8,6,8,') {
 /** 标题艺术字（带血渍感的描边大字） */
 function drawTitle(ctx, text, x, y, size, opts = {}) {
   ctx.save();
-  ctx.font = `bold ${size}px "Trebuchet MS", Impact, sans-serif`;
+  ctx.font = opts.font || `bold ${size}px "Trebuchet MS", Impact, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
@@ -11272,14 +11898,14 @@ function drawStartScreen(ctx, W, H, t, hoverBtn) {
 
   // 操作说明（双列，桌面 / 移动端）
   const ly = by + bh + 34;
-  strokedText(ctx, '桌面：WASD 移动   ·   方向键发射   ·   P/ESC 暂停', W / 2, ly, {
-    font: 'bold 15px "Trebuchet MS",sans-serif', fill: PAL.uiText, lineWidth: 3, align: 'center',
+  strokedText(ctx, '桌面：WASD 移动   ·   方向键发射   ·   P/ESC 暂停   ·   M 静音', W / 2, ly, {
+    font: `bold 15px ${FONT_UI}`, fill: PAL.uiText, lineWidth: 3, align: 'center',
   });
   strokedText(ctx, '移动端：左半屏拖动移动   ·   右半屏拖动瞄准射击', W / 2, ly + 24, {
-    font: 'bold 15px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
+    font: `bold 15px ${FONT_UI}`, fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
   });
-  strokedText(ctx, '清空房间内的敌人即可开启门 ·  击败 Boss 进入下一层', W / 2, ly + 48, {
-    font: '14px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
+  strokedText(ctx, '清空房间内的敌人即可开启门 ·  击败 Boss 进入下一层 ·  每层有专属配乐', W / 2, ly + 48, {
+    font: `14px ${FONT_UI}`, fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
   });
   strokedText(ctx, `种子 ${t % 1 === 0 ? '' : ''}${(ctx.canvas && ctx.canvas.dataset && ctx.canvas.dataset.seed) || ''}`, W / 2, H - 18, {
     font: '12px monospace', fill: '#6a5f5a', lineWidth: 2, align: 'center',
@@ -11314,7 +11940,7 @@ function drawDeathScreen(ctx, W, H, t, stats, hoverBtn) {
     ['击杀数', String(stats.kills)],
     ['拾取道具', String(stats.itemsPicked)],
     ['存活时间', formatTime(stats.timeAlive)],
-    ['抵达层数', `B${stats.floorReached}`],
+    ['抵达层数', `第${stats.floorReached}层`],
     ['造成伤害', String(Math.round(stats.damageDealt))],
     ['探索房间', `${stats.roomsVisited}`],
   ];
@@ -11394,7 +12020,7 @@ function drawWinScreen(ctx, W, H, t, stats, hoverBtn) {
     ['击杀数', String(stats.kills)],
     ['拾取道具', String(stats.itemsPicked)],
     ['存活时间', formatTime(stats.timeAlive)],
-    ['抵达层数', `B${stats.floorReached}`],
+    ['抵达层数', `第${stats.floorReached}层`],
     ['造成伤害', String(Math.round(stats.damageDealt))],
     ['探索房间', `${stats.roomsVisited}`],
   ];
@@ -11435,18 +12061,42 @@ function drawPauseScreen(ctx, W, H, hoverBtn) {
   ];
 }
 
-/** 层间过渡：显示「B2」大字与房间名 */
-function drawFloorTransition(ctx, W, H, t, floor, label) {
+/**
+ * 层间过渡（关卡加载页）。
+ * 版式：`第 N 层`（小字）→ **楼层中文名**（大字）→ 英文原名（小字）→ 本层配乐名。
+ * @param {string} [label]   英文楼层名（如 'Womb'）
+ * @param {string} [labelZh] 中文楼层名（如 '子宫'）
+ */
+function drawFloorTransition(ctx, W, H, t, floor, label, labelZh) {
   const p = t / 1.8;
   const alpha = p < 0.15 ? p / 0.15 : p > 0.82 ? (1 - p) / 0.18 : 1;
+  const nameZh = labelZh || label || '';
+  const size = Math.min(72, W * 0.1);
+  const track = trackForFloor(floor);
+
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
   ctx.fillStyle = 'rgba(6,4,6,0.92)';
   ctx.fillRect(0, 0, W, H);
-  drawTitle(ctx, `B${floor}`, W / 2, H * 0.44, Math.min(96, W * 0.13));
-  strokedText(ctx, label, W / 2, H * 0.56, {
-    font: 'bold 22px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 4, align: 'center',
+
+  // 第 N 层（小字，交代进度）
+  strokedText(ctx, `第 ${floor} 层`, W / 2, H * 0.35, {
+    font: `bold 24px ${FONT_UI}`, fill: PAL.uiTextDim, lineWidth: 4, align: 'center',
   });
+  // 楼层名（大字）
+  drawTitle(ctx, nameZh, W / 2, H * 0.47, size, { font: `bold ${size}px ${FONT_UI}` });
+  // 英文原名（小字）
+  if (label) {
+    strokedText(ctx, label, W / 2, H * 0.575, {
+      font: 'bold 20px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 4, align: 'center',
+    });
+  }
+  // 本层配乐名
+  if (track && track.name) {
+    strokedText(ctx, `♪  ${track.name}`, W / 2, H * 0.66, {
+      font: `15px ${FONT_UI}`, fill: '#8a7f74', lineWidth: 3, align: 'center',
+    });
+  }
   ctx.restore();
 }
 
@@ -12120,7 +12770,7 @@ class Renderer {
     } else if (g.scene === SCENE.PAUSED) {
       g._pauseButtons = drawPauseScreen(ctx, W, H, g.hoverBtn && g.hoverBtn.id);
     } else if (g.scene === SCENE.FLOOR_INTRO) {
-      drawFloorTransition(ctx, W, H, g.transitionT, g.floor, g.biomeName);
+      drawFloorTransition(ctx, W, H, g.transitionT, g.floor, g.biomeName, g.biomeNameZh);
     }
 
     // FPS（开发信息）
@@ -12486,6 +13136,10 @@ function boot() {
     if (e.code === 'F3') {
       game.showDebug = !game.showDebug;
       e.preventDefault();
+    }
+    // 静音切换：M（音效与配乐同时静音）
+    if (e.code === 'KeyM') {
+      game.audioMuted = audio.toggleMuted();
     }
     // 快速重开：R（在死亡/通关界面）
     if (e.code === 'KeyR' && (game.scene === SCENE.DEAD || game.scene === SCENE.WIN)) {

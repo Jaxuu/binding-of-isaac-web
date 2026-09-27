@@ -16,6 +16,7 @@ import { Enemy, updateEnemyAI } from '../entities/enemy.js';
 import { Boss, updateBoss } from '../entities/boss.js';
 import { Combat } from './combat.js';
 import { ParticleSystem } from '../art/particles.js';
+import { MusicPlayer } from '../core/music.js';
 import { generateDungeon, validateDungeon, DIRS, roomKey, ROOM_KIND } from './dungeon.js';
 import { Room, populateRoom, ROOM_W, ROOM_H, PLAY_PAD } from './rooms.js';
 import { floorDef, floorCount, FLOORS } from './floors.js';
@@ -34,9 +35,6 @@ export const SCENE = Object.freeze({
   FLOOR_INTRO: 'floorIntro',
 });
 
-/** 每层主题名（UI 显示）——由 systems/floors.js 统一提供 */
-const BIOMES = FLOORS.map((f) => f.name);
-
 /** 通关所需层数（= 楼层总数） */
 const MAX_FLOOR = floorCount();
 
@@ -51,6 +49,8 @@ export class GameState {
 
     this.fx = new ParticleSystem();
     this.combat = new Combat(bus, this.fx, audio);
+    /** 逐层程序化配乐（见 core/music.js）；音频未解锁时会暂存待播楼层 */
+    this.music = new MusicPlayer(audio);
 
     this.scene = SCENE.TITLE;
     this.sceneT = 0;
@@ -70,7 +70,8 @@ export class GameState {
     this.currentRoom = null;
     this.visitedRooms = new Set();
     this.visitedCount = 0;
-    this.biomeName = BIOMES[0];
+    this.biomeName = FLOORS[0].name;
+    this.biomeNameZh = FLOORS[0].nameZh;
 
     // 资源
     this.coins = 0;
@@ -95,6 +96,8 @@ export class GameState {
     this.itemPanel = null; // {item, t}
     this.transitionT = 0;
     this.transitionLabel = '';
+    /** 静音状态（由 main.js 的 M 键写入，供 HUD 显示） */
+    this.audioMuted = false;
 
     // 输入辅助
     this._prevConfirm = false;
@@ -154,7 +157,8 @@ export class GameState {
     this.sceneT = 0;
     this.transitionT = 0;
     this.transitionLabel = '';
-    this.biomeName = BIOMES[0];
+    this.biomeName = FLOORS[0].name;
+    this.biomeNameZh = FLOORS[0].nameZh;
     this.bus.emit(EVT.GAME_STARTED, { seed: this.seed });
     this.audio.unlock();
   }
@@ -162,7 +166,9 @@ export class GameState {
   /** 生成一层地牢并放置玩家到起点房 */
   generateFloor(floor) {
     this.floor = floor;
-    this.biomeName = BIOMES[Math.min(BIOMES.length - 1, floor - 1)];
+    const fd = floorDef(floor);
+    this.biomeName = fd.name;
+    this.biomeNameZh = fd.nameZh;
     this.stats.floorReached = Math.max(this.stats.floorReached, floor);
 
     const dungeon = generateDungeon(this.rng, {
@@ -212,6 +218,9 @@ export class GameState {
     this.player.invuln = 1.0;
 
     this.bus.emit(EVT.FLOOR_CHANGED, { floor });
+    // 逐层配乐：切层即换曲（音频未解锁时会在解锁后自动开播）
+    this.music.setCombat(false);
+    this.music.play(floor);
   }
 
   // ==================== 场景切换 ====================
@@ -224,6 +233,11 @@ export class GameState {
     }
     this.scene = s;
     this.sceneT = 0;
+    // 配乐：暂停时停止推进节拍；离开玩法场景（标题/死亡/通关）则停曲。
+    // FLOOR_INTRO 保持播放（换层时 generateFloor 已切到新曲）。
+    if (s === SCENE.PAUSED) this.music.setPaused(true);
+    else if (s === SCENE.PLAYING) this.music.setPaused(false);
+    else if (s === SCENE.TITLE || s === SCENE.DEAD || s === SCENE.WIN) this.music.stop();
     this.bus.emit(EVT.SCENE_CHANGED, s);
   }
 
@@ -236,6 +250,9 @@ export class GameState {
   update(dt) {
     this.sceneT += dt;
     this.input.update();
+
+    // 配乐前瞻调度（固定 60Hz 驱动；内部只在解锁后生效）
+    this.music.update();
 
     // 震屏衰减
     if (this.shake > 0) {
@@ -319,6 +336,9 @@ export class GameState {
     const room = this.currentRoom;
 
     this.stats.timeAlive += dt;
+
+    // 加重变体：房间内有存活敌人时叠加该层的战斗乐器层（对应原作机制）
+    this.music.setCombat(room.hasLiveEnemies);
 
     // ---- 暂停输入 ----
     if (this.input.pressed('KeyP') || this.input.pressed('Escape')) {

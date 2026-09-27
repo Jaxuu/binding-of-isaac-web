@@ -14,6 +14,15 @@ import { drawHeart, drawSoulHeart, drawBlackHeart, drawCoin, drawKey, drawBomb, 
 import { roundRect, roundRectPath, inkShape, strokedText, circle } from './primitives.js';
 import { TAU } from '../core/math.js';
 import { statBar } from '../entities/stats.js';
+import { trackForFloor } from '../core/music.js';
+
+/**
+ * 中文 UI 字体栈。
+ * Canvas 的 font 简写里，非 ASCII 字形需要显式给 CJK 字族才能保证字重/字距一致，
+ * 否则浏览器回退字族的字重往往比西文字族细一档。按平台从新到旧排列：
+ * Windows → Microsoft YaHei；macOS → PingFang SC；Linux/通用 → Noto Sans SC / Hiragino。
+ */
+const FONT_UI = '"Microsoft YaHei","PingFang SC","Noto Sans SC","Hiragino Sans GB",sans-serif';
 
 /**
  * 绘制血量（红心 + 魂心 + 黑心）
@@ -152,9 +161,10 @@ export function drawHUD(ctx, g, W) {
   drawStatBars(ctx, pad, g);
 
   // ---- 右上：层数 + 小地图 ----
-  const floorText = g.biomeName ? `${g.biomeName}  B${g.floor}` : `Basement B${g.floor}`;
+  const biomeZh = g.biomeNameZh || g.biomeName || '';
+  const floorText = `${biomeZh}  第${g.floor}层`;
   strokedText(ctx, floorText, W - pad, pad + 18, {
-    font: 'bold 19px "Trebuchet MS",sans-serif',
+    font: `bold 19px ${FONT_UI}`,
     fill: PAL.uiText,
     lineWidth: 4,
     align: 'right',
@@ -185,48 +195,84 @@ export function drawHUD(ctx, g, W) {
     });
     if (cr >= 1) {
       ctx.globalAlpha = 0.5 + Math.sin(performance.now() / 90) * 0.4;
-      strokedText(ctx, 'READY', W / 2, by + 30, {
-        font: 'bold 15px "Trebuchet MS",sans-serif', fill: '#ff8a6a', lineWidth: 3, align: 'center',
+      strokedText(ctx, '就绪', W / 2, by + 30, {
+        font: `bold 15px ${FONT_UI}`, fill: '#ff8a6a', lineWidth: 3, align: 'center',
       });
       ctx.globalAlpha = 1;
     }
     ctx.restore();
   }
+
+  // ---- 静音提示（M 键切换）----
+  if (g.audioMuted) {
+    strokedText(ctx, '已静音  ·  按 M 恢复', W / 2, g._h - 14, {
+      font: `bold 14px ${FONT_UI}`, fill: '#c88a6a', lineWidth: 3, align: 'center',
+    });
+  }
 }
 
+/**
+ * 左下角「角色属性面板」。
+ *
+ * 中文标签 + 放大版式（相对旧版：条宽 62→80、条高 7→10、行高 15→20、字号 10→13）。
+ * 位置策略：默认贴底（左下角，桌面端所见即所得）；在**触屏且高视口**（H ≥ 560）下，
+ * 面板会整体移到移动摇杆**下方**，避免与摇杆底盘重叠 —— 摇杆位于 0.78H、半径 52
+ * （见 ui/joystick.js），矮视口（横屏）维持旧行为不变。
+ */
 function drawStatBars(ctx, x, g) {
   const p = g.player;
   const stats = [
-    { key: 'damage', label: 'DMG', color: '#e05a4a' },
-    { key: 'fireDelay', label: 'RATE', color: '#e0a83a' },
-    { key: 'speed', label: 'SPD', color: '#4aa3e0' },
-    { key: 'range', label: 'RNG', color: '#9b6bd6' },
-    { key: 'shotSpeed', label: 'SHOT', color: '#3ac0a0' },
+    { key: 'damage', label: '伤害', color: '#e05a4a' },
+    { key: 'fireDelay', label: '射速', color: '#e0a83a' },
+    { key: 'speed', label: '移速', color: '#4aa3e0' },
+    { key: 'range', label: '射程', color: '#9b6bd6' },
+    { key: 'shotSpeed', label: '弹速', color: '#3ac0a0' },
   ];
-  const bw = 62;
-  const bh = 7;
-  const lineH = 15;
-  // 半透明底板
-  const panelH = stats.length * lineH + 12;
+  const labelW = 40; // 中文标签列宽（两字 × 13px + 间距）
+  const bw = 80; // 属性条宽
+  const bh = 10; // 属性条高
+  const lineH = 20; // 行高
+  const padX = 10;
+  const padY = 9;
+  const panelW = labelW + bw + padX * 2;
+  const panelH = padY * 2 + stats.length * lineH - (lineH - bh);
+
+  // 面板底边
+  let bottom = g._h - 46;
+  const touch = !!(g.input && (g.input.touchCapable || g.input.usingTouch));
+  if (touch && g._h >= 560) {
+    const stickBottom = g._h * 0.78 + 52; // 摇杆底盘下沿
+    bottom = stickBottom + 10 + panelH <= g._h - 8
+      ? stickBottom + 10 + panelH // 摇杆下方有空间 → 整体下移
+      : Math.min(bottom, g._h * 0.78 - 52 - 10); // 否则上移到摇杆上方
+  }
+  const panelX = x - padX;
+  const panelY = bottom - panelH;
+
+  // 半透明底板 + 细边框（提高面板在浅色地砖上的可读性）
   ctx.save();
-  ctx.globalAlpha = 0.55;
-  roundRect(ctx, x - 6, g._h - panelH - 46, bw + 58, panelH, 6, { fill: PAL.uiBg, stroke: null });
+  ctx.globalAlpha = 0.62;
+  roundRect(ctx, panelX, panelY, panelW, panelH, 8, { fill: PAL.uiBg, stroke: null });
+  ctx.restore();
+  ctx.save();
+  ctx.globalAlpha = 0.32;
+  roundRect(ctx, panelX, panelY, panelW, panelH, 8, { fill: null, stroke: PAL.uiTextDim, lineWidth: 1.5 });
   ctx.restore();
 
-  let y = g._h - panelH - 40 + 8;
+  let rowTop = panelY + padY;
   for (const s of stats) {
-    strokedText(ctx, s.label, x, y + bh, {
-      font: 'bold 10px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 2.5,
-    });
-    const bx = x + 34;
+    const bx = x + labelW;
     ctx.save();
-    roundRect(ctx, bx, y, bw, bh, 3, { fill: PAL.uiBarBg, stroke: PAL.ink, lineWidth: 1.6 });
+    roundRect(ctx, bx, rowTop, bw, bh, 4, { fill: PAL.uiBarBg, stroke: PAL.ink, lineWidth: 1.8 });
     const v = statBar(s.key, p.stats[s.key]);
     if (v > 0.01) {
-      roundRect(ctx, bx + 1, y + 1, Math.max(2, (bw - 2) * v), bh - 2, 2, { fill: s.color, stroke: null });
+      roundRect(ctx, bx + 1.5, rowTop + 1.5, Math.max(3, (bw - 3) * v), bh - 3, 3, { fill: s.color, stroke: null });
     }
     ctx.restore();
-    y += lineH;
+    strokedText(ctx, s.label, x, rowTop + bh * 0.5 + 4.5, {
+      font: `bold 13px ${FONT_UI}`, fill: PAL.uiText, lineWidth: 3,
+    });
+    rowTop += lineH;
   }
 }
 
@@ -442,7 +488,7 @@ export function drawScreenDim(ctx, W, H, alpha = 0.82, tint = 'rgba(8,6,8,') {
 /** 标题艺术字（带血渍感的描边大字） */
 export function drawTitle(ctx, text, x, y, size, opts = {}) {
   ctx.save();
-  ctx.font = `bold ${size}px "Trebuchet MS", Impact, sans-serif`;
+  ctx.font = opts.font || `bold ${size}px "Trebuchet MS", Impact, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
@@ -498,14 +544,14 @@ export function drawStartScreen(ctx, W, H, t, hoverBtn) {
 
   // 操作说明（双列，桌面 / 移动端）
   const ly = by + bh + 34;
-  strokedText(ctx, '桌面：WASD 移动   ·   方向键发射   ·   P/ESC 暂停', W / 2, ly, {
-    font: 'bold 15px "Trebuchet MS",sans-serif', fill: PAL.uiText, lineWidth: 3, align: 'center',
+  strokedText(ctx, '桌面：WASD 移动   ·   方向键发射   ·   P/ESC 暂停   ·   M 静音', W / 2, ly, {
+    font: `bold 15px ${FONT_UI}`, fill: PAL.uiText, lineWidth: 3, align: 'center',
   });
   strokedText(ctx, '移动端：左半屏拖动移动   ·   右半屏拖动瞄准射击', W / 2, ly + 24, {
-    font: 'bold 15px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
+    font: `bold 15px ${FONT_UI}`, fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
   });
-  strokedText(ctx, '清空房间内的敌人即可开启门 ·  击败 Boss 进入下一层', W / 2, ly + 48, {
-    font: '14px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
+  strokedText(ctx, '清空房间内的敌人即可开启门 ·  击败 Boss 进入下一层 ·  每层有专属配乐', W / 2, ly + 48, {
+    font: `14px ${FONT_UI}`, fill: PAL.uiTextDim, lineWidth: 3, align: 'center',
   });
   strokedText(ctx, `种子 ${t % 1 === 0 ? '' : ''}${(ctx.canvas && ctx.canvas.dataset && ctx.canvas.dataset.seed) || ''}`, W / 2, H - 18, {
     font: '12px monospace', fill: '#6a5f5a', lineWidth: 2, align: 'center',
@@ -540,7 +586,7 @@ export function drawDeathScreen(ctx, W, H, t, stats, hoverBtn) {
     ['击杀数', String(stats.kills)],
     ['拾取道具', String(stats.itemsPicked)],
     ['存活时间', formatTime(stats.timeAlive)],
-    ['抵达层数', `B${stats.floorReached}`],
+    ['抵达层数', `第${stats.floorReached}层`],
     ['造成伤害', String(Math.round(stats.damageDealt))],
     ['探索房间', `${stats.roomsVisited}`],
   ];
@@ -620,7 +666,7 @@ export function drawWinScreen(ctx, W, H, t, stats, hoverBtn) {
     ['击杀数', String(stats.kills)],
     ['拾取道具', String(stats.itemsPicked)],
     ['存活时间', formatTime(stats.timeAlive)],
-    ['抵达层数', `B${stats.floorReached}`],
+    ['抵达层数', `第${stats.floorReached}层`],
     ['造成伤害', String(Math.round(stats.damageDealt))],
     ['探索房间', `${stats.roomsVisited}`],
   ];
@@ -661,18 +707,42 @@ export function drawPauseScreen(ctx, W, H, hoverBtn) {
   ];
 }
 
-/** 层间过渡：显示「B2」大字与房间名 */
-export function drawFloorTransition(ctx, W, H, t, floor, label) {
+/**
+ * 层间过渡（关卡加载页）。
+ * 版式：`第 N 层`（小字）→ **楼层中文名**（大字）→ 英文原名（小字）→ 本层配乐名。
+ * @param {string} [label]   英文楼层名（如 'Womb'）
+ * @param {string} [labelZh] 中文楼层名（如 '子宫'）
+ */
+export function drawFloorTransition(ctx, W, H, t, floor, label, labelZh) {
   const p = t / 1.8;
   const alpha = p < 0.15 ? p / 0.15 : p > 0.82 ? (1 - p) / 0.18 : 1;
+  const nameZh = labelZh || label || '';
+  const size = Math.min(72, W * 0.1);
+  const track = trackForFloor(floor);
+
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
   ctx.fillStyle = 'rgba(6,4,6,0.92)';
   ctx.fillRect(0, 0, W, H);
-  drawTitle(ctx, `B${floor}`, W / 2, H * 0.44, Math.min(96, W * 0.13));
-  strokedText(ctx, label, W / 2, H * 0.56, {
-    font: 'bold 22px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 4, align: 'center',
+
+  // 第 N 层（小字，交代进度）
+  strokedText(ctx, `第 ${floor} 层`, W / 2, H * 0.35, {
+    font: `bold 24px ${FONT_UI}`, fill: PAL.uiTextDim, lineWidth: 4, align: 'center',
   });
+  // 楼层名（大字）
+  drawTitle(ctx, nameZh, W / 2, H * 0.47, size, { font: `bold ${size}px ${FONT_UI}` });
+  // 英文原名（小字）
+  if (label) {
+    strokedText(ctx, label, W / 2, H * 0.575, {
+      font: 'bold 20px "Trebuchet MS",sans-serif', fill: PAL.uiTextDim, lineWidth: 4, align: 'center',
+    });
+  }
+  // 本层配乐名
+  if (track && track.name) {
+    strokedText(ctx, `♪  ${track.name}`, W / 2, H * 0.66, {
+      font: `15px ${FONT_UI}`, fill: '#8a7f74', lineWidth: 3, align: 'center',
+    });
+  }
   ctx.restore();
 }
 

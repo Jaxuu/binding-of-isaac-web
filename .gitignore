@@ -9,9 +9,8 @@
 node_modules/
 
 # --- 测试临时产物（可再生成）---
-tests/shots/
+tests/shots*/
 tests/screenshots/
-tests/shots-expansion/
 tests/last-run-*.json
 # 每次跑门可通行性验证都会重新生成的证据文件（与 last-run-*.json 同性质）；
 # 人读报告 tests/qa-report-door.md 仍入库。

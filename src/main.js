@@ -101,6 +101,10 @@ function boot() {
       game.showDebug = !game.showDebug;
       e.preventDefault();
     }
+    // 静音切换：M（音效与配乐同时静音）
+    if (e.code === 'KeyM') {
+      game.audioMuted = audio.toggleMuted();
+    }
     // 快速重开：R（在死亡/通关界面）
     if (e.code === 'KeyR' && (game.scene === SCENE.DEAD || game.scene === SCENE.WIN)) {
       game.startGame();

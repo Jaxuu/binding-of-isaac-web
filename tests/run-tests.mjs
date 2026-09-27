@@ -15,6 +15,8 @@ import { Enemy, ENEMY_DEFS, ENEMY_TYPES, updateEnemyAI } from '../src/entities/e
 import { Boss, updateBoss, BOSS_DEFS } from '../src/entities/boss.js';
 import { FLOORS, floorDef, floorCount, floorEnemies, floorObstacles } from '../src/systems/floors.js';
 import { ITEM_ICONS } from '../src/art/draw-items.js';
+import { FLOOR_TRACKS, trackForFloor, MusicPlayer } from '../src/core/music.js';
+import { Audio } from '../src/core/audio.js';
 import { Rng, mulberry32, hashSeed, normalizeSeed } from '../src/core/rng.js';
 import { EventBus, EVT } from '../src/core/events.js';
 import { StateMachine } from '../src/core/state.js';
@@ -990,6 +992,77 @@ group('楼层配置一致性', () => {
     for (const [type, d] of Object.entries(ENEMY_DEFS)) {
       assert(whitelist.includes(d.ai), `${type} 的 ai '${d.ai}' 未实现`);
     }
+  });
+});
+
+// =================================================================
+group('逐层配乐（程序化合成）', () => {
+  const VALID_DRUMS = ['none', 'soft', 'medium', 'heavy', 'heart'];
+  const VALID_COMBAT = ['none', 'guitar', 'bass', 'drums', 'choir', 'ambient'];
+
+  test('配乐数量与楼层数一致', () => {
+    eq(FLOOR_TRACKS.length, floorCount(), '配乐数应等于楼层数');
+  });
+
+  test('每层配乐字段完整且合法', () => {
+    for (const t of FLOOR_TRACKS) {
+      assert(t.id && t.name, `${t.id || '?'} 缺 id/name`);
+      assert(t.bpm > 0 && t.bpm < 300, `${t.id} bpm 非法: ${t.bpm}`);
+      assert(t.root > 0, `${t.id} root 非法`);
+      assert(Array.isArray(t.scale) && t.scale.length >= 5, `${t.id} 调式不完整`);
+      assert(Array.isArray(t.prog) && t.prog.length >= 2, `${t.id} 和弦进行不足`);
+      assert(typeof t.bassPat === 'string' && t.bassPat.length === 8, `${t.id} bassPat 应为 8 格`);
+      assert(typeof t.arpPat === 'string' && t.arpPat.length === 8, `${t.id} arpPat 应为 8 格`);
+      assert(VALID_DRUMS.includes(t.drums), `${t.id} drums 非法: ${t.drums}`);
+      assert(VALID_COMBAT.includes(t.combat), `${t.id} combat 非法: ${t.combat}`);
+      assert(typeof t.ambience === 'number' && t.ambience >= 0 && t.ambience <= 1, `${t.id} ambience 非法`);
+      assert(t.padWave && t.bassWave && t.leadWave, `${t.id} 缺波形定义`);
+    }
+  });
+
+  test('每层配乐 id 唯一且与楼层 id 对应', () => {
+    const ids = FLOOR_TRACKS.map((t) => t.id);
+    eq(new Set(ids).size, ids.length, '配乐 id 重复');
+    for (let i = 0; i < FLOORS.length; i++) {
+      eq(FLOOR_TRACKS[i].id, FLOORS[i].id, `第 ${i + 1} 层配乐 id 应为 ${FLOORS[i].id}`);
+    }
+  });
+
+  test('12 层配乐彼此不同（调式/速度/根音至少一项区分）', () => {
+    const sigs = FLOOR_TRACKS.map((t) => `${t.bpm}|${t.root}|${t.scale.join(',')}|${t.prog.join(',')}`);
+    eq(new Set(sigs).size, sigs.length, '存在完全相同的配乐定义');
+  });
+
+  test('trackForFloor 越界钳制', () => {
+    eq(trackForFloor(1), FLOOR_TRACKS[0]);
+    eq(trackForFloor(999), FLOOR_TRACKS[FLOOR_TRACKS.length - 1]);
+    eq(trackForFloor(0), FLOOR_TRACKS[0]);
+  });
+
+  test('MusicPlayer 在无 AudioContext 环境下不抛异常（Node 安全）', () => {
+    const audio = new Audio();
+    const mp = new MusicPlayer(audio);
+    mp.play(3);
+    mp.update();
+    mp.setCombat(true);
+    mp.update();
+    mp.setPaused(true);
+    mp.update();
+    mp.stop();
+    mp.update();
+    eq(mp.playing, false, '无音频上下文时不应进入播放态');
+  });
+
+  test('Audio 提供独立配乐总线与静音开关', () => {
+    const audio = new Audio();
+    assert(typeof audio.setMusicVolume === 'function', '缺 setMusicVolume');
+    assert(typeof audio.toggleMuted === 'function', '缺 toggleMuted');
+    eq(audio.toggleMuted(), true, '首次切换应为静音');
+    eq(audio.toggleMuted(), false, '再次切换应恢复');
+    audio.setMusicVolume(2);
+    eq(audio.musicVolume, 1, '配乐音量应被钳制到 1');
+    audio.setMusicVolume(-1);
+    eq(audio.musicVolume, 0, '配乐音量应被钳制到 0');
   });
 });
 

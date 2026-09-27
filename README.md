@@ -143,6 +143,30 @@ dist/isaac-standalone.html?seed=777
 | Speed Ball / The Belt / Wings … | 移速提升 |
 | Odd Mushroom / The Peeper … | 射程与弹速提升 |
 
+### 逐层配乐（12 层各一曲，程序化合成）
+
+每层有**独立配乐**（不同调式 / 速度 / 根音 / 音色 / 节奏型），加载页会显示本层曲目名。
+并实现了原作的**「加重变体」机制**：房间内出现敌人时，自动叠加该层的战斗乐器层。
+
+| 层 | 曲目（致敬命名） | 调式 | BPM | 加重乐器 |
+|---|---|---|---|---|
+| B1 地下室 | Diptera Sonata | 自然小调 | 96 | 吉他 |
+| B2 地窖 | Periculum | 多利亚 | 104 | 吉他 |
+| B3 洞穴 | Sodden Hollow | 弗里吉亚 | 88 | 低音吉他 |
+| B4 地下墓穴 | Capiticus Calvaria | 和声小调 | 112 | 吉他 |
+| B5 深处 | Abyss | 洛克里亚 | 72 | 环境音效 |
+| B6 大墓地 | When Blood Dries | 弗里吉亚 | 100 | 吉他 |
+| B7 子宫 | Viscera | 自然小调 | 84 | 鼓 |
+| B8 子宫内 | Viscera (Utero) | 和声小调 | 94 | 鼓 |
+| B9 阴间 | Duress | 弗里吉亚 | 122 | 鼓 |
+| B10 大教堂 | Everlasting Hymn | 利底亚 | 76 | 背景合唱 |
+| B11 宝箱 | Sketches of Pain | 多利亚 | 108 | 吉他 |
+| B12 黑暗房间 | Devoid | 全音阶 | 64 | 环境音效 |
+
+> ⚠️ **版权**：本项目**不含任何原作旋律或音频素材**。所有音符由 Web Audio 实时合成，
+> 调式/速度/音色/节奏型均为原创；仅在「情绪取向 + 加重乐器」层面致敬原作。
+> 按 **M** 可静音（音效与配乐同时静音）。
+
 ---
 
 ## 项目结构
@@ -167,7 +191,8 @@ case-yisa/
 │   │   ├── pool.js         #   对象池 + ActiveList
 │   │   ├── rng.js          #   可种子化随机（mulberry32）
 │   │   ├── math.js         #   数学/碰撞辅助
-│   │   └── audio.js        #   Web Audio 程序化音效
+│   │   ├── audio.js        #   Web Audio 程序化音效 + 配乐总线
+│   │   └── music.js        #   逐层程序化配乐（12 层各一曲 + 加重变体）
 │   ├── art/                # 表现层（Canvas 2D 代码绘制）
 │   │   ├── palette.js      #   全局调色板
 │   │   ├── primitives.js   #   绘制原语（先描边后填充）
@@ -182,6 +207,7 @@ case-yisa/
 │   ├── systems/           # 编排层
 │   │   ├── game.js         #   中央编排器 + 场景状态机
 │   │   ├── dungeon.js      #   地牢生成 + 不变量校验
+│   │   ├── floors.js       #   12 层配置中枢（主题/敌人池/专属 Boss）
 │   │   ├── rooms.js        #   房间运行时 + 内容生成
 │   │   └── combat.js       #   战斗结算
 │   ├── ui/joystick.js      # 虚拟摇杆渲染
@@ -192,8 +218,9 @@ case-yisa/
 │   ├── adr/ADR-001..006    # 6 条架构决策记录
 │   └── framework-notes.md  # 参考 API 笔记
 └── tests/
-    ├── run-tests.mjs       # 89 项 Node 逻辑单测
+    ├── run-tests.mjs       # 114 项 Node 逻辑单测
     ├── harness.mjs         # Playwright 无头端到端验证
+    ├── verify-expansion.mjs   # 扩展内容端到端验证（19 小怪/12 Boss/58 道具）
     ├── verify-standalone.mjs  # 单文件产物 file:// 真实路径验证
     ├── smoke.mjs           # 发布前烟雾门控
     ├── qa-report.md        # 测试报告
@@ -205,7 +232,7 @@ case-yisa/
 ## 测试
 
 ```bash
-# 1) 逻辑单测（107 项，纯 Node，无需浏览器）
+# 1) 逻辑单测（114 项，纯 Node，无需浏览器）
 npm test
 #   等价：node tests/run-tests.mjs
 

@@ -504,7 +504,7 @@ export class Renderer {
     } else if (g.scene === SCENE.PAUSED) {
       g._pauseButtons = drawPauseScreen(ctx, W, H, g.hoverBtn && g.hoverBtn.id);
     } else if (g.scene === SCENE.FLOOR_INTRO) {
-      drawFloorTransition(ctx, W, H, g.transitionT, g.floor, g.biomeName);
+      drawFloorTransition(ctx, W, H, g.transitionT, g.floor, g.biomeName, g.biomeNameZh);
     }
 
     // FPS（开发信息）
