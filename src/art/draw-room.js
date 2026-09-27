@@ -411,25 +411,58 @@ function paintTreasureDecor(ctx, W, H, rng) {
  */
 export function drawObstacle(ctx, x, y, type, seed = 0, t = 0) {
   const rng = new Rng(seed);
+  // 关键：所有图元都以「障碍物自身」为原点绘制，必须平移到传入的格位坐标。
+  // （曾经的缺陷：本函数忽略了 x/y，导致所有障碍物本体都堆叠在房间内容区左上角，
+  //   画面上只剩渲染器内联绘制的投影椭圆 —— 表现为「地板上的黑洞」。）
+  // 注意：spike 由调用方预先 translate 后以 (0,0) 调用，此处为无操作，安全。
+  ctx.save();
+  ctx.translate(x, y);
   switch (type) {
     case 'rock': {
-      // 岩石：多边形 + 顶面高光
+      // 岩石：不规则圆角多边形，几乎占满格子；亮面填充 + 粗描边 + 顶面受光 + 底部暗面 + 裂纹
+      const R = 20; // 基准半径（48px 格 → 视觉直径约 40px）
+      const n = 9;
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const a = -Math.PI / 2 + (i / n) * TAU;
+        const r = R * rng.range(0.86, 1.06);
+        pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.92 });
+      }
+      // 主体
       inkShape(ctx, (c) => {
-        const n = 7;
-        c.moveTo(-18, 8);
-        for (let i = 1; i <= n; i++) {
-          const a = Math.PI + (i / n) * Math.PI; // 上半圈
-          c.lineTo(Math.cos(a) * rng.range(14, 20), Math.sin(a) * rng.range(10, 15) - 2);
-        }
-        c.lineTo(18, 8);
+        c.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
         c.closePath();
-      }, { fill: '#8a7566', lineWidth: 3 });
+      }, { fill: '#a89786', lineWidth: 3.2 });
+
+      // 底部暗面（体积感）
       ctx.save();
-      ctx.globalAlpha = 0.4;
-      ctx.fillStyle = '#b8a494';
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = '#5f5147';
       ctx.beginPath();
-      ctx.ellipse(-5, -4, 8, 5, -0.4, 0, TAU);
+      ctx.ellipse(1, 9, 13, 5, 0.08, 0, TAU);
       ctx.fill();
+      ctx.restore();
+
+      // 顶面受光
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#d3c4b0';
+      ctx.beginPath();
+      ctx.ellipse(-4, -6, 10.5, 7, -0.35, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+
+      // 裂纹（增加辨识度）
+      ctx.save();
+      ctx.strokeStyle = 'rgba(26,13,13,0.42)';
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-7, -3); ctx.lineTo(-2, 1.5); ctx.lineTo(-4.5, 6.5);
+      ctx.moveTo(5.5, -6); ctx.lineTo(8.5, -0.5);
+      ctx.stroke();
       ctx.restore();
       break;
     }
@@ -442,11 +475,11 @@ export function drawObstacle(ctx, x, y, type, seed = 0, t = 0) {
       ];
       for (const L of layers) {
         inkShape(ctx, (c) => c.ellipse(0, L.y, L.rx, L.ry, 0, 0, TAU), {
-          fill: '#7a4a1e', lineWidth: 3,
+          fill: '#8d5a26', lineWidth: 3,
         });
         ctx.save();
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = '#a8703a';
+        ctx.globalAlpha = 0.42;
+        ctx.fillStyle = '#c08a4c';
         ctx.beginPath();
         ctx.ellipse(-L.rx * 0.3, L.y - L.ry * 0.4, L.rx * 0.4, L.ry * 0.3, 0, 0, TAU);
         ctx.fill();
@@ -458,7 +491,7 @@ export function drawObstacle(ctx, x, y, type, seed = 0, t = 0) {
         c.lineTo(0, -18);
         c.lineTo(3, -12);
         c.closePath();
-      }, { fill: '#7a4a1e', lineWidth: 2.4 });
+      }, { fill: '#8d5a26', lineWidth: 2.4 });
       break;
     }
     case 'spike': {
@@ -486,6 +519,7 @@ export function drawObstacle(ctx, x, y, type, seed = 0, t = 0) {
       break;
     }
   }
+  ctx.restore();
 }
 
 function roundRectPathLite(c, x, y, w, h, r) {

@@ -205,12 +205,12 @@ export class Renderer {
     for (const o of room.obstacles) {
       const ox = o.tx * TILE + TILE / 2;
       const oy = o.ty * TILE + TILE / 2;
-      // 投影
+      // 投影（收小并减淡，避免在障碍物下方露出一圈「黑洞」）
       ctx.save();
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = 0.22;
       ctx.fillStyle = '#000';
       ctx.beginPath();
-      ctx.ellipse(ox, oy + 14, 18, 7, 0, 0, TAU);
+      ctx.ellipse(ox, oy + 15, 15, 5.5, 0, 0, TAU);
       ctx.fill();
       ctx.restore();
       drawObstacle(ctx, ox, oy, o.type, o.seed, t);
