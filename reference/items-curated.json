@@ -1,0 +1,216 @@
+{
+  "source": "isaacguru.com item laboratory (719 collectibles)",
+  "curatedForMechanics": [
+    {
+      "id": "c1",
+      "name": "The Sad Onion",
+      "realIdInSource": "c1",
+      "effect": "射速+1.7发/秒（延迟-1帧域）"
+    },
+    {
+      "id": "c2",
+      "name": "The Inner Eye",
+      "realIdInSource": "c2",
+      "effect": "三重射击：一次发射3发泪弹，射速x0.48"
+    },
+    {
+      "id": "c3",
+      "name": "Spoon Bender",
+      "realIdInSource": "c3",
+      "effect": "眼泪追踪（homing），转向速率有限"
+    },
+    {
+      "id": "c4",
+      "name": "Cricket's Head",
+      "realIdInSource": "c4",
+      "effect": "伤害x1.5，子弹变大变红"
+    },
+    {
+      "id": "c5",
+      "name": "My Reflection",
+      "realIdInSource": "c5",
+      "effect": "眼泪回旋镖式返回，射程x1.4"
+    },
+    {
+      "id": "c6",
+      "name": "Number One",
+      "realIdInSource": "c6",
+      "effect": "射速大幅+（延迟-2帧），射程-1.5"
+    },
+    {
+      "id": "c7",
+      "name": "Blood of the Martyr",
+      "realIdInSource": "c7",
+      "effect": "伤害+1.0，全屏血色调"
+    },
+    {
+      "id": "c12",
+      "name": "Magic Mushroom",
+      "realIdInSource": "c12",
+      "effect": "全属性提升：伤害x1.5、+1心、移速/射程/弹速各+0.3，身体变大"
+    },
+    {
+      "id": "c14",
+      "name": "Roid Rage",
+      "realIdInSource": "c14",
+      "effect": "移速+0.3，伤害+0.3"
+    },
+    {
+      "id": "c19",
+      "name": "Boom!",
+      "realIdInSource": "c19",
+      "effect": "+10炸弹"
+    },
+    {
+      "id": "c29",
+      "name": "Mom's Underwear",
+      "realIdInSource": "c29",
+      "effect": "射程+1.0"
+    },
+    {
+      "id": "c32",
+      "name": "Wire Coat Hanger",
+      "realIdInSource": "c32",
+      "effect": "射速+（延迟-0.7帧），射程+0.5"
+    },
+    {
+      "id": "c48",
+      "name": "Cupid's Arrow",
+      "realIdInSource": "c48",
+      "effect": "眼泪穿透敌人"
+    },
+    {
+      "id": "c51",
+      "name": "Pentagram",
+      "realIdInSource": "c51",
+      "effect": "伤害+1.0，脚下五芒星印记"
+    },
+    {
+      "id": "c63",
+      "name": "The Battery",
+      "realIdInSource": "c63",
+      "effect": "主动道具可充能两次"
+    },
+    {
+      "id": "c68",
+      "name": "Technology",
+      "realIdInSource": "c68",
+      "effect": "眼泪变为贯穿激光束（不可穿墙）"
+    },
+    {
+      "id": "c70",
+      "name": "Growth Hormones",
+      "realIdInSource": "c70",
+      "effect": "伤害+1.0，移速+0.4"
+    },
+    {
+      "id": "c79",
+      "name": "The Mark",
+      "realIdInSource": "c79",
+      "effect": "伤害+1.0，移速+0.2，额头血印+恶魔角"
+    },
+    {
+      "id": "c80",
+      "name": "The Pact",
+      "realIdInSource": "c80",
+      "effect": "伤害+0.5，射速+（延迟-0.5帧）"
+    },
+    {
+      "id": "c82",
+      "name": "Lord of the Pit",
+      "realIdInSource": "c82",
+      "effect": "飞行（越过坑洞/尖刺），移速+0.3，背后黑翼"
+    },
+    {
+      "id": "c101",
+      "name": "The Halo",
+      "realIdInSource": "c101",
+      "effect": "全属性+：伤害x1.2、射速+、+1心，头顶金环"
+    },
+    {
+      "id": "c108",
+      "name": "The Wafer",
+      "realIdInSource": "c108",
+      "effect": "受伤害降至半心"
+    },
+    {
+      "id": "c114",
+      "name": "Mom's Knife",
+      "realIdInSource": "c114",
+      "effect": "眼泪变为蓄力飞刀（近战+抛射）"
+    },
+    {
+      "id": "c116",
+      "name": "9 Volt",
+      "realIdInSource": "c116",
+      "effect": "主动道具充能加速"
+    },
+    {
+      "id": "c118",
+      "name": "Brimstone",
+      "realIdInSource": "c118",
+      "effect": "眼泪变为蓄力血激光，伤害x3.5，需蓄力"
+    },
+    {
+      "id": "c129",
+      "name": "Bucket of Lard",
+      "realIdInSource": "c129",
+      "effect": "+2心但移速-0.4"
+    },
+    {
+      "id": "c149",
+      "name": "Ipecac",
+      "realIdInSource": "c149",
+      "effect": "抛物爆炸弹：伤害x3，弹速极慢，落地爆炸"
+    },
+    {
+      "id": "c153",
+      "name": "Mutant Spider",
+      "realIdInSource": "c153",
+      "effect": "四重射击，射速x0.5"
+    },
+    {
+      "id": "c165",
+      "name": "Cat-o-nine-tails",
+      "realIdInSource": "c165",
+      "effect": "伤害+1.0，射程+1.0，鞭子外观"
+    },
+    {
+      "id": "c169",
+      "name": "Polyphemus",
+      "realIdInSource": "c169",
+      "effect": "伤害x4、巨型穿透弹、击杀回血，射速x0.5"
+    },
+    {
+      "id": "c182",
+      "name": "Sacred Heart",
+      "realIdInSource": "c182",
+      "effect": "伤害x2.3、眼泪追踪、射程x1.5"
+    },
+    {
+      "id": "c224",
+      "name": "Cricket's Body",
+      "realIdInSource": "c224",
+      "effect": "射速+、眼泪爆散成小泪滴"
+    },
+    {
+      "id": "c245",
+      "name": "20/20",
+      "realIdInSource": "c245",
+      "effect": "双重射击：一次2发"
+    },
+    {
+      "id": "c254",
+      "name": "Blood Clot",
+      "realIdInSource": "c254",
+      "effect": "伤害+1.0，左眼血红"
+    },
+    {
+      "id": "c330",
+      "name": "Soy Milk",
+      "realIdInSource": "c330",
+      "effect": "射速x0.25（极快），伤害x0.2"
+    }
+  ],
+  "poolSize": 717
+}

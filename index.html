@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0709">
+<meta name="description" content="The Binding of Isaac 核心玩法网页复刻版 — 原生 Canvas 2D 代码绘制，零依赖零构建">
+<title>The Binding of Isaac · Web</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 唯一的 Canvas：所有美术（角色/敌人/道具/UI）都用 Canvas 2D 路径与渐变代码绘制 -->
+  <canvas id="game" aria-label="以撒的结合 网页版游戏画面"></canvas>
+
+  <!-- 无脚本提示 -->
+  <noscript>
+    <div class="noscript">本游戏需要启用 JavaScript 才能运行。</div>
+  </noscript>
+
+  <!-- 启动脚本：原生 ES Module，无需打包 -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

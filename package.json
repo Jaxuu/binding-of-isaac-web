@@ -1,0 +1,14 @@
+{
+  "name": "binding-of-isaac-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Binding of Isaac core gameplay web remake — native Canvas 2D, zero runtime deps, zero build step (optional dist bundler only)",
+  "scripts": {
+    "serve": "python -m http.server 8080",
+    "build": "node tools/build-standalone.mjs",
+    "test": "node tests/run-tests.mjs",
+    "test:build": "node tests/build-failfast.mjs",
+    "verify": "node tests/harness.mjs all"
+  }
+}

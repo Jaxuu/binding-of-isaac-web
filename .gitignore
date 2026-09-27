@@ -1,0 +1,39 @@
+# ============================================================
+# .gitignore — The Binding of Isaac · Web
+# 维护：release-ops-lead（REL-001）
+# 原则：源码 / 交付产物 / 正式测试全部入库；
+#       依赖、测试临时产物、一次性诊断脚本、OS 杂物、第三方原始抓取物不入库。
+# ============================================================
+
+# --- 依赖（可再生成，不入库）---
+node_modules/
+
+# --- 测试临时产物（可再生成）---
+tests/shots/
+tests/screenshots/
+tests/last-run-*.json
+
+# --- 一次性诊断 / 探针脚本（team-lead 指定）---
+tests/_diag*.mjs
+tests/_diag*.png
+tests/_timeprobe.mjs
+tests/_vt*.mjs
+
+# --- 补充：同一「下划线前缀 = 一次性草稿」约定的其余临时件
+#     （release-ops-lead 追加，理由见交付报告；如不认可可删除本段）
+#     说明：tests/ 下所有 "_" 前缀文件均为一次性诊断/探针/草稿，
+#     上方的 team-lead 指定项已被此通配覆盖，保留仅为可读性与追溯。
+tests/_*
+*.bak
+
+# --- 内部工具元数据（非游戏交付物）---
+.workbuddy-ai/
+
+# --- 版权评估：第三方站点原始抓取副本，不入库
+#     （仅保留整理后的 reference/items-curated.json）---
+reference/_isaacguru_raw.html
+
+# --- OS 杂物 ---
+Thumbs.db
+.DS_Store
+desktop.ini

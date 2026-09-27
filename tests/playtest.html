@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Playtest Driver</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<canvas id="game" aria-label="playtest"></canvas>
+<script>
+/* playtest driver: injects scripted input before the game boots */
+(function () {
+  var Q = new URLSearchParams(location.search);
+  var SCENARIO = Q.get('auto') || 'idle';
+  var seed = Q.get('seed') || '12345';
+
+  function synth(type, code, key) {
+    window.dispatchEvent(new KeyboardEvent(type, { code: code, key: key, bubbles: true, cancelable: true }));
+  }
+  function keyFromCode(code) {
+    var m = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
+      ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
+      Escape: 'Escape', Enter: 'Enter', Space: ' ' };
+    return m[code] || code;
+  }
+
+  var SCRIPTS = {
+    idle: [],
+    move: [
+      { at: 0.2, down: 'KeyD', up: 'KeyD' },
+      { at: 1.2, down: 'KeyW', up: 'KeyW' },
+      { at: 2.2, down: 'KeyA', up: 'KeyA' },
+      { at: 3.2, down: 'KeyS', up: 'KeyS' },
+      { at: 4.2, down: 'KeyD' },
+      { at: 5.0, down: 'KeyS' },
+      { at: 6.0, up: 'KeyD' },
+      { at: 6.0, up: 'KeyS' }
+    ],
+    shoot: [
+      { at: 0.2, down: 'ArrowRight' },
+      { at: 0.9, down: 'ArrowDown' },
+      { at: 1.6, down: 'ArrowLeft' },
+      { at: 2.3, down: 'ArrowUp' },
+      { at: 3.0, down: 'ArrowRight' }
+    ],
+    combat: [
+      { at: 0.2, down: 'ArrowRight' },
+      { at: 0.2, down: 'KeyD' },
+      { at: 1.0, up: 'KeyD' },
+      { at: 1.0, down: 'KeyS' },
+      { at: 2.0, up: 'KeyS' },
+      { at: 2.0, down: 'KeyA' },
+      { at: 3.0, up: 'KeyA' },
+      { at: 3.0, down: 'KeyW' }
+    ],
+    roam: [
+      { at: 0.2, down: 'ArrowRight' },
+      { at: 0.2, down: 'KeyD' },
+      { at: 1.2, up: 'KeyD' },
+      { at: 1.2, down: 'KeyS' },
+      { at: 2.4, up: 'KeyS' },
+      { at: 2.4, down: 'KeyA' },
+      { at: 3.6, up: 'KeyA' },
+      { at: 3.6, down: 'KeyW' },
+      { at: 4.8, up: 'KeyW' },
+      { at: 4.8, down: 'KeyD' },
+      { at: 6.0, up: 'KeyD' },
+      { at: 6.0, down: 'KeyS' }
+    ],
+    item: [
+      { at: 0.2, down: 'ArrowRight' },
+      { at: 0.2, down: 'KeyD' }
+    ]
+  };
+
+  var script = SCRIPTS[SCENARIO] || [];
+  var fired = new Array(script.length).fill(false);
+  var t0 = null;
+
+  function tick(nowMs) {
+    if (t0 === null) t0 = nowMs;
+    var t = (nowMs - t0) / 1000;
+    for (var i = 0; i < script.length; i++) {
+      if (fired[i]) continue;
+      var s = script[i];
+      if (t >= s.at) {
+        fired[i] = true;
+        if (s.down) synth('keydown', s.down, keyFromCode(s.down));
+        if (s.up) synth('keyup', s.up, keyFromCode(s.up));
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /* auto-confirm the title screen by activating the START button */
+  var tries = 0;
+  var iv = setInterval(function () {
+    tries++;
+    if (tries > 20) { clearInterval(iv); return; }
+    var cv = document.getElementById('game');
+    if (!cv) return;
+    var r = cv.getBoundingClientRect();
+    var cx = r.left + r.width / 2;
+    var cy = r.top + r.height / 2;
+    ['pointermove', 'pointerdown', 'pointerup'].forEach(function (type) {
+      cv.dispatchEvent(new PointerEvent(type, {
+        clientX: cx, clientY: cy, bubbles: true, cancelable: true,
+        pointerId: 1, isPrimary: true, pointerType: 'mouse',
+        button: 0, buttons: type === 'pointerup' ? 0 : 1
+      }));
+    });
+  }, 100);
+
+  window.__PLAYTEST__ = { scenario: SCENARIO, seed: seed };
+
+  /* boot the game */
+  var s = document.createElement('script');
+  s.type = 'module';
+  s.src = '/src/main.js';
+  document.body.appendChild(s);
+
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
