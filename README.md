@@ -4,8 +4,8 @@
 
 > **零运行时依赖 · 零图片/音频素材**
 > 所有美术（角色 / 敌人 / Boss / 房间 / 道具 / UI）与音效全部由代码实时生成。
-> 两种玩法：**双击 `dist/isaac-standalone.html` 即玩**（自包含单文件），
-> 或跑源码（`index.html`，需一个静态服务）。
+> **在线即玩**：打开 👉 **<https://jaxuu.github.io/binding-of-isaac-web/>** 即可开玩；
+> 也可下载到本地**双击 `dist/isaac-standalone.html`**（离线单文件），或跑源码（`index.html`，需静态服务）。
 
 > 📖 **完整项目介绍**（功能特性 / 安装与使用 / 目录结构 / 技术栈 / 常见问题 / 许可证）
 > 见 **[docs/项目介绍.md](docs/项目介绍.md)**。
@@ -30,9 +30,25 @@
 
 ## 快速开始
 
-### 方式一 · 双击即玩（推荐 ⭐）
+### 方式一 · 在线即玩（推荐 ⭐）
 
-直接**双击**打开：
+在浏览器打开下面的网址，**打开即玩**：
+
+**👉 <https://jaxuu.github.io/binding-of-isaac-web/>**
+
+- **无需安装任何东西**（不需要 Python / Node）
+- **无需起服务**（不占用端口、不需要 localhost）
+- 手机浏览器也能直接玩（触屏双摇杆自动显示）
+- 由 **GitHub Pages** 托管，链接稳定、长期有效
+
+> 想复现指定一局，在网址后加 `?seed=` 即可，例如
+> <https://jaxuu.github.io/binding-of-isaac-web/?seed=777>。
+
+### 方式二 · 本地双击即玩（离线单文件）
+
+> ⚠️ **前置条件**：需先把本仓库下载到本地 —— 用
+> `git clone https://github.com/Jaxuu/binding-of-isaac-web.git`，
+> 或在仓库页点 **Code → Download ZIP** 后解压。拿到本地文件后，**双击**打开：
 
 ```
 dist/isaac-standalone.html
@@ -40,7 +56,7 @@ dist/isaac-standalone.html
 
 - **无需安装任何东西**（不需要 Python / Node）
 - **无需起服务**（不占用端口、不需要 localhost）
-- **无需联网**（所有代码 / 样式已内联进这一个文件）
+- **无需联网**（所有代码 / 样式已内联进这一个文件，可离线运行）
 - 一个自包含单文件（约 424 KB），拷到 U 盘、发微信、丢到任意目录都能直接玩
 
 > 该文件由 `tools/build-standalone.mjs` 把整棵 ES Module 依赖图打包成经典
@@ -54,7 +70,7 @@ dist/isaac-standalone.html
 > `dist/isaac-standalone.html` 都**不需要任何构建**；`build` 只用于**重新生成分发包**
 > （例如你改了源码、想把新版本打成单文件发给别人）。日常开发改完刷新即可见。
 
-### 方式二 · 一键启动本地服务（模块化版本）
+### 方式三 · 一键启动本地服务（模块化版本）
 
 想直接跑源码（`index.html` + `src/`）时用：
 
@@ -72,7 +88,7 @@ start.bat
 > 本机若设了系统代理，`localhost` 请求可能被代理劫持返回 **502**。
 > 一键脚本走 `127.0.0.1` 且端口固定，行为更可预期。
 
-### 方式三 · 手动起 HTTP 服务（不推荐）
+### 方式四 · 手动起 HTTP 服务（不推荐）
 
 `index.html` 使用 ES Modules，**必须通过 HTTP 协议加载**（`file://` 会被浏览器 CORS 拦截，
 表现为黑屏）。手动方式：
@@ -84,6 +100,9 @@ python -m http.server 8080      # 或 npx --yes serve -l 8080 .
 ### 复现指定一局
 
 ```
+# 在线版本
+https://jaxuu.github.io/binding-of-isaac-web/?seed=777
+
 # 模块化版本
 http://127.0.0.1:8080/?seed=777
 
