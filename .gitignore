@@ -40,3 +40,11 @@ reference/_isaacguru_raw.html
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*
+  
+# --- EdgeOne Makers 部署脚手架（本地生成，不入库）---
+deploy/

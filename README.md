@@ -7,6 +7,25 @@
 > 两种玩法：**双击 `dist/isaac-standalone.html` 即玩**（自包含单文件），
 > 或跑源码（`index.html`，需一个静态服务）。
 
+> 📖 **完整项目介绍**（功能特性 / 安装与使用 / 目录结构 / 技术栈 / 常见问题 / 许可证）
+> 见 **[docs/项目介绍.md](docs/项目介绍.md)**。
+
+---
+
+## 界面预览
+
+> 以下截图均取自**真实运行**的游戏（Playwright 驱动真实 Chromium，固定 `?seed=` 可复现），
+> 未使用任何占位图或 AI 生图。
+
+| 标题界面 | 游戏内 HUD（中文属性面板 + 小地图） |
+|---|---|
+| ![标题界面](docs/screenshots/01-title.png) | ![游戏内 HUD](docs/screenshots/02-hud-gameplay.png) |
+| **关卡加载页**（第 N 层 + 楼层中文名 + 本层配乐名） | **Boss 战**（B9「阴间」· Satan） |
+| ![关卡加载页](docs/screenshots/03-floor-intro.png) | ![Boss 战 Satan](docs/screenshots/04-boss-satan.png) |
+
+> 更多截图（B12 最终 Boss The Lamb、普通房战斗、移动端竖屏双摇杆）与逐张说明，
+> 见 **[docs/项目介绍.md](docs/项目介绍.md)** 的「界面截图说明」一节。
+
 ---
 
 ## 快速开始
@@ -22,7 +41,7 @@ dist/isaac-standalone.html
 - **无需安装任何东西**（不需要 Python / Node）
 - **无需起服务**（不占用端口、不需要 localhost）
 - **无需联网**（所有代码 / 样式已内联进这一个文件）
-- 一个自包含单文件（约 288 KB），拷到 U 盘、发微信、丢到任意目录都能直接玩
+- 一个自包含单文件（约 424 KB），拷到 U 盘、发微信、丢到任意目录都能直接玩
 
 > 该文件由 `tools/build-standalone.mjs` 把整棵 ES Module 依赖图打包成经典
 > `<script>` 生成，因此**不受 `file://` 的 CORS 限制**。改了 `src/` 后重新生成：
@@ -213,6 +232,8 @@ case-yisa/
 │   ├── ui/joystick.js      # 虚拟摇杆渲染
 │   └── main.js             # 引导装配 + 主循环
 ├── docs/
+│   ├── 项目介绍.md         # 完整项目介绍（功能/使用/目录/技术栈/FAQ）
+│   ├── screenshots/        # 真实运行截图（README 与项目介绍引用）
 │   ├── architecture.md     # 架构文档
 │   ├── architecture-review.md
 │   ├── adr/ADR-001..006    # 6 条架构决策记录
@@ -238,7 +259,7 @@ npm test
 
 # 2) 源码完整性 + ESM 依赖图（无需浏览器）
 node tests/run.cjs            # 39 项：源码完整性检查（期望 39/39）
-node tests/lint-esm.cjs src   # 32 模块依赖图（期望 PASS）
+node tests/lint-esm.cjs src   # 34 模块依赖图（期望 PASS）
 
 # 3) 需求逐条验收（含移动端摇杆像素级证据，需 playwright）
 node tests/verify-user-req.mjs    # 期望 14/14 + 自动截图
@@ -270,7 +291,7 @@ npm run test:build                # 等价：node tests/build-failfast.mjs，期
 `harness.mjs` 会自建静态服务器 → 加载页面 → 模拟输入 → 截图 → 收集 JS 错误，
 输出结构化 JSON（`tests/last-run-*.json`）与截图（`tests/screenshots/`）。
 
-**当前状态**：89/89 单测 · 39/39 源码完整性 · ESM 32 模块 PASS · 需求验收 14/14 ·
+**当前状态**：114/114 单测 · 39/39 源码完整性 · ESM 34 模块 PASS · 需求验收 14/14 ·
 端到端 8 场景 0 JS 错误 · 烟雾门控 PASS · 单文件 `file://` 验证 6/6 PASS。
 QA 判定 🟢 PASS（无阻塞项）。
 
